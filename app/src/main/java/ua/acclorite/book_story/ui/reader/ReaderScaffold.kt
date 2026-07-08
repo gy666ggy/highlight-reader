@@ -8,6 +8,7 @@ package ua.acclorite.book_story.ui.reader
 
 import android.annotation.SuppressLint
 import android.content.Context
+import androidx.core.net.toUri
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.Column
@@ -56,6 +57,7 @@ import kotlinx.coroutines.launch
 import ua.acclorite.book_story.domain.model.library.Book
 import ua.acclorite.book_story.domain.model.reader.ReaderText
 import ua.acclorite.book_story.domain.model.reader.ReaderText.Chapter
+import ua.acclorite.book_story.data.model.file.CachedFileCompat
 import ua.acclorite.book_story.presentation.reader.ReaderEvent
 import ua.acclorite.book_story.presentation.reader.model.Checkpoint
 import ua.acclorite.book_story.presentation.reader.model.ReaderFontThickness
@@ -263,9 +265,10 @@ fun ReaderScaffold(
                         is ReaderText.Image -> ""
                     }
                 }
-                File(book.filePath).writeText(output)
+                writeOriginalTxtFile(context, book.filePath, output)
+                editingError = "已保存并替换手机里的原 TXT 文件。"
             }.onFailure {
-                editingError = "TXT file could not be saved: ${it.message ?: "unknown error"}"
+                editingError = "TXT 原文件保存失败：${it.message ?: "未知错误"}。如果这本书是旧导入的，请重新从手机文件夹导入一次，让 App 获取写入权限。"
             }
         } else {
             editingError = "本章内容已在当前阅读界面更新；直接写回原文件目前只支持 TXT。"
@@ -954,4 +957,36 @@ private fun String.makePreview(charIndex: Int, queryLength: Int): String {
     val prefix = if (start > 0) "…" else ""
     val suffix = if (end < length) "…" else ""
     return prefix + substring(start, end) + suffix
+}
+
+private fun writeOriginalTxtFile(context: Context, filePath: String, text: String) {
+    val directFile = File(filePath)
+    if (directFile.exists() && directFile.canWrite()) {
+        directFile.writeText(text)
+        return
+    }
+
+    if (filePath.startsWith("content://", ignoreCase = true)) {
+        context.contentResolver.openOutputStream(filePath.toUri(), "wt")?.use { output ->
+            output.write(text.toByteArray())
+        } ?: throw IllegalStateException("无法打开原 TXT 文件写入流")
+        return
+    }
+
+    context.contentResolver.persistedUriPermissions.forEach { permission ->
+        val storage = CachedFileCompat.fromUri(context, permission.uri)
+        if (!storage.isDirectory) return@forEach
+        if (!filePath.startsWith(storage.path, ignoreCase = true)) return@forEach
+
+        storage.walk().forEach { file ->
+            if (file.path.equals(filePath, ignoreCase = true)) {
+                context.contentResolver.openOutputStream(file.uri, "wt")?.use { output ->
+                    output.write(text.toByteArray())
+                } ?: throw IllegalStateException("无法打开原 TXT 文件写入流")
+                return
+            }
+        }
+    }
+
+    throw IllegalStateException("找不到可写入的原 TXT 文件")
 }
