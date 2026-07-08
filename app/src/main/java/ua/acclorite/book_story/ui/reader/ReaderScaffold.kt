@@ -66,6 +66,7 @@ import java.io.File
 fun ReaderScaffold(
     book: Book,
     text: List<ReaderText>,
+    epubOriginalFilePath: String?,
     listState: LazyListState,
     currentChapter: Chapter?,
     nestedScrollConnection: NestedScrollConnection,
@@ -359,12 +360,12 @@ fun ReaderScaffold(
             }
         }
     ) {
-        val useOriginalEpubMode = remember(book.filePath) {
-            book.filePath.endsWith(".epub", ignoreCase = true) && canUseOriginalEpubMode(book.filePath)
+        val useOriginalEpubMode = remember(epubOriginalFilePath) {
+            epubOriginalFilePath != null && canUseOriginalEpubMode(epubOriginalFilePath)
         }
         if (useOriginalEpubMode && !isLoading) {
             EpubOriginalReader(
-                filePath = book.filePath,
+                filePath = epubOriginalFilePath!!,
                 modifier = Modifier.fillMaxSize()
             )
         } else {

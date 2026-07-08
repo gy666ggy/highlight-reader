@@ -396,6 +396,7 @@ data class ReaderScreen(val bookId: Int) : Screen, Parcelable {
         ReaderContent(
             book = state.value.book,
             text = state.value.text,
+            epubOriginalFilePath = state.value.epubOriginalFilePath,
             bottomSheet = state.value.bottomSheet,
             drawer = state.value.drawer,
             listState = listState,

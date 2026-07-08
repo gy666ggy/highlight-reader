@@ -34,6 +34,7 @@ import ua.acclorite.book_story.core.ui.UIText
 import ua.acclorite.book_story.domain.model.reader.ReaderText.Chapter
 import ua.acclorite.book_story.domain.use_case.book.GetBookUseCase
 import ua.acclorite.book_story.domain.use_case.book.GetChapterProgressUseCase
+import ua.acclorite.book_story.domain.use_case.book.GetFileFromBookUseCase
 import ua.acclorite.book_story.domain.use_case.book.GetTextUseCase
 import ua.acclorite.book_story.domain.use_case.book.UpdateBookUseCase
 import ua.acclorite.book_story.domain.use_case.history.GetHistoryForBookUseCase
@@ -49,6 +50,7 @@ class ReaderModel @Inject constructor(
     private val updateBookUseCase: UpdateBookUseCase,
     private val getTextUseCase: GetTextUseCase,
     private val getBookUseCase: GetBookUseCase,
+    private val getFileFromBookUseCase: GetFileFromBookUseCase,
     private val getHistoryForBookUseCase: GetHistoryForBookUseCase,
     private val getChapterProgressUseCase: GetChapterProgressUseCase
 ) : ViewModel() {
@@ -88,12 +90,18 @@ class ReaderModel @Inject constructor(
                         _effects.emit(ReaderEffect.OnSystemBarsVisibility(show = null))
 
                         val lastOpened = getHistoryForBookUseCase(_state.value.book.id)?.time
+                        val epubOriginalFilePath = if (
+                            _state.value.book.filePath.endsWith(".epub", ignoreCase = true)
+                        ) {
+                            getFileFromBookUseCase(_state.value.book.id)?.rawPath
+                        } else null
                         _state.update {
                             it.copy(
                                 showMenu = false,
                                 book = it.book.copy(
                                     lastOpened = lastOpened
                                 ),
+                                epubOriginalFilePath = epubOriginalFilePath,
                                 text = text
                             )
                         }

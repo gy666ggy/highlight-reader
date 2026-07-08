@@ -15,5 +15,6 @@ data class File(
     val path: String,
     val size: Long,
     val lastModified: Long,
-    val isDirectory: Boolean
+    val isDirectory: Boolean,
+    val rawPath: String? = null
 )
