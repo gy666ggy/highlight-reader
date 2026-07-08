@@ -359,7 +359,10 @@ fun ReaderScaffold(
             }
         }
     ) {
-        if (book.filePath.endsWith(".epub", ignoreCase = true) && !isLoading) {
+        val useOriginalEpubMode = remember(book.filePath) {
+            book.filePath.endsWith(".epub", ignoreCase = true) && canUseOriginalEpubMode(book.filePath)
+        }
+        if (useOriginalEpubMode && !isLoading) {
             EpubOriginalReader(
                 filePath = book.filePath,
                 modifier = Modifier.fillMaxSize()

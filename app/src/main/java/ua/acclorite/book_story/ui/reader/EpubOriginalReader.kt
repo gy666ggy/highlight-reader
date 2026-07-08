@@ -52,6 +52,20 @@ fun EpubOriginalReader(
     )
 }
 
+fun canUseOriginalEpubMode(filePath: String): Boolean {
+    return runCatching {
+        val source = File(filePath)
+        if (!source.exists() || !source.canRead()) return false
+        ZipFile(source).use { zip ->
+            zip.entries().asSequence().any { entry ->
+                !entry.isDirectory && listOf(".xhtml", ".html", ".htm").any { extension ->
+                    entry.name.endsWith(extension, ignoreCase = true)
+                }
+            }
+        }
+    }.getOrDefault(false)
+}
+
 private fun prepareEpubForWebView(filePath: String, cacheDir: File): File? {
     val source = File(filePath)
     if (!source.exists() || !source.canRead()) return null
