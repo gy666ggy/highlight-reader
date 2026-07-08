@@ -44,7 +44,7 @@ jobs:
           path: app/build/outputs/apk/debug/*.apk
 
   release-build:
-    name: 构建签名 Release APK 和 AAB
+    name: 构建签名 Release APK
     runs-on: ubuntu-latest
     if: github.event_name == 'workflow_dispatch' && inputs.build_release == 'true'
 
@@ -68,8 +68,8 @@ jobs:
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
 
-      - name: 构建 Release APK 和 AAB
-        run: ./gradlew :app:assembleRelease :app:bundleRelease --stacktrace
+      - name: 构建 Release APK
+        run: ./gradlew :app:assembleRelease --stacktrace
         env:
           ANDROID_KEYSTORE_FILE: release/highlight-reader-release.jks
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -81,9 +81,3 @@ jobs:
         with:
           name: book-story-dialogue-release-apk
           path: app/build/outputs/apk/release/*.apk
-
-      - name: 上传 Release AAB
-        uses: actions/upload-artifact@v4
-        with:
-          name: book-story-dialogue-release-aab
-          path: app/build/outputs/bundle/release/*.aab

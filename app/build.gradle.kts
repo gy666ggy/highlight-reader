@@ -45,7 +45,7 @@ android {
         }
 
         getByName("release") {
-            isMinifyEnabled = true
+            isMinifyEnabled = false
             isShrinkResources = false
             if (!System.getenv("ANDROID_KEYSTORE_FILE").isNullOrBlank()) {
                 signingConfig = signingConfigs.getByName("ciRelease")
