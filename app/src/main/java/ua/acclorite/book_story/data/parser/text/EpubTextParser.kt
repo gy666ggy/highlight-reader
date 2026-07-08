@@ -58,6 +58,15 @@ class EpubTextParser @Inject constructor(
                     val tocEntry = zip.entries().toList().find { entry ->
                         entry.name.endsWith(".ncx", ignoreCase = true)
                     }
+                    val navEntry = zip.entries().toList().find { entry ->
+                        entry.name.endsWith(".xhtml", ignoreCase = true) ||
+                                entry.name.endsWith(".html", ignoreCase = true) ||
+                                entry.name.endsWith(".htm", ignoreCase = true)
+                    }?.takeIf { entry ->
+                        val content = zip.getInputStream(entry).bufferedReader().use { it.readText() }
+                        content.contains("epub:type=\"toc\"", ignoreCase = true) ||
+                                content.contains("type=\"toc\"", ignoreCase = true)
+                    }
                     val opfEntry = zip.entries().toList().find { entry ->
                         entry.name.endsWith(".opf", ignoreCase = true)
                     }
@@ -68,9 +77,10 @@ class EpubTextParser @Inject constructor(
                             it.name.endsWith(format, ignoreCase = true)
                         }
                     }
-                    val chapterTitleEntries = zip.getChapterTitleMapFromToc(tocEntry)
+                    val chapterTitleEntries = zip.getChapterTitleMapFromToc(tocEntry, navEntry)
 
                     logI(TAG, "TOC Entry: ${tocEntry?.name ?: "no toc.ncx"}")
+                    logI(TAG, "NAV Entry: ${navEntry?.name ?: "no nav document"}")
                     logI(TAG, "OPF Entry: ${opfEntry?.name ?: "no .opf entry"}")
                     logI(TAG, "Chapter entries, size: ${chapterEntries.size}")
                     logI(TAG, "Title entries, size: ${chapterTitleEntries?.size}")
@@ -219,19 +229,19 @@ class EpubTextParser @Inject constructor(
      * @return null if [tocEntry] is null.
      */
     private suspend fun ZipFile.getChapterTitleMapFromToc(
-        tocEntry: ZipEntry?
+        tocEntry: ZipEntry?,
+        navEntry: ZipEntry?
     ): Map<Source, ReaderText.Chapter>? {
+        val titleMap = mutableMapOf<Source, ReaderText.Chapter>()
+
         val tocContent = tocEntry?.let {
             withContext(Dispatchers.IO) {
                 getInputStream(it)
             }.bufferedReader().use { it.readText() }
         }
-        val tocDocument = tocContent?.let { Jsoup.parse(it) }
+        val tocDocument = tocContent?.let { Jsoup.parse(it, Parser.xmlParser()) }
 
-        if (tocDocument == null) return null
-        val titleMap = mutableMapOf<Source, ReaderText.Chapter>()
-
-        tocDocument.select("navPoint").forEach { navPoint ->
+        tocDocument?.select("navPoint")?.forEach { navPoint ->
             val title = navPoint.selectFirst("navLabel > text")?.text()
                 .let { title ->
                     if (title.isNullOrBlank()) return@forEach
@@ -240,9 +250,7 @@ class EpubTextParser @Inject constructor(
 
             val source = navPoint.selectFirst("content")?.attr("src")?.trim()
                 .also { src -> if (src.isNullOrBlank()) return@forEach }
-                .let { src -> URLDecoder.decode(src, StandardCharsets.UTF_8.name()) }
-                .let { src -> src.toUri().path ?: src }
-                .substringAfterLast(File.separator)
+                .let { src -> normalizeEpubSource(src) }
 
             val parent = navPoint.parent()
                 ?.let { parent ->
@@ -250,9 +258,7 @@ class EpubTextParser @Inject constructor(
 
                     val parentSource = parent.selectFirst("content")?.attr("src")?.trim()
                         .also { src -> if (src.isNullOrBlank()) return@forEach }
-                        .let { src -> URLDecoder.decode(src, StandardCharsets.UTF_8.name()) }
-                        .let { src -> src.toUri().path ?: src }
-                        .substringAfterLast(File.separator)
+                        .let { src -> normalizeEpubSource(src) }
 
                     if (parentSource == source) return@let null
                     return@let parentSource
@@ -266,9 +272,26 @@ class EpubTextParser @Inject constructor(
                 nested = titleMap[source]?.nested ?: (parent != null)
             )
             titleMap[source] = chapter
+            titleMap[source.substringAfterLast(File.separator)] = chapter
         }
 
-        return titleMap
+        val navContent = navEntry?.let {
+            withContext(Dispatchers.IO) {
+                getInputStream(it)
+            }.bufferedReader().use { it.readText() }
+        }
+        val navDocument = navContent?.let { Jsoup.parse(it, Parser.htmlParser()) }
+        navDocument?.select("nav a")?.forEach { link ->
+            val title = link.text().trim().takeIf { it.containsVisibleText() } ?: return@forEach
+            val source = link.attr("href").trim().takeIf { it.isNotBlank() }
+                ?.let { normalizeEpubSource(it) } ?: return@forEach
+            val nested = link.parents().count { it.tagName().equals("ol", ignoreCase = true) } > 1
+            val chapter = ReaderText.Chapter(title = title, nested = nested)
+            titleMap.putIfAbsent(source, chapter)
+            titleMap.putIfAbsent(source.substringAfterLast(File.separator), chapter)
+        }
+
+        return titleMap.ifEmpty { null }
     }
 
     /**
@@ -281,7 +304,18 @@ class EpubTextParser @Inject constructor(
         chapterTitleMap: Map<Source, ReaderText.Chapter>?
     ): ReaderText.Chapter? {
         if (chapterTitleMap.isNullOrEmpty()) return null
-        return chapterTitleMap.getOrElse(chapterSource.substringAfterLast(File.separator)) { null }
+        val normalizedSource = normalizeEpubSource(chapterSource)
+        return chapterTitleMap[normalizedSource]
+            ?: chapterTitleMap[normalizedSource.substringAfterLast(File.separator)]
+    }
+
+    private fun normalizeEpubSource(source: String): String {
+        return URLDecoder.decode(source, StandardCharsets.UTF_8.name())
+            .substringBefore("#")
+            .replace("\\", File.separator)
+            .let { src -> src.toUri().path ?: src }
+            .trimStart('/')
+            .lowercase()
     }
 
     /**

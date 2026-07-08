@@ -13,15 +13,26 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
@@ -38,6 +49,7 @@ import ua.acclorite.book_story.presentation.settings.SettingsEvent
 import ua.acclorite.book_story.ui.common.components.common.AnimatedVisibility
 import ua.acclorite.book_story.ui.reader.model.FontWithName
 import ua.acclorite.book_story.ui.theme.model.HorizontalAlignment
+import java.io.File
 
 @SuppressLint("UnusedMaterial3ScaffoldPaddingParameter")
 @Composable
@@ -114,6 +126,35 @@ fun ReaderScaffold(
     navigateToBookInfo: (ReaderEvent.OnNavigateToBookInfo) -> Unit,
     navigateBack: (ReaderEvent.OnNavigateBack) -> Unit
 ) {
+    var displayedText by remember(text) { mutableStateOf(text) }
+    var editingIndex by remember { mutableIntStateOf(-1) }
+    var editingValue by remember { mutableStateOf("") }
+    var editingError by remember { mutableStateOf<String?>(null) }
+
+    fun saveEditedParagraph(index: Int, value: String) {
+        val updatedText = displayedText.toMutableList()
+        updatedText[index] = ReaderText.Text(AnnotatedString(value))
+        displayedText = updatedText
+
+        if (book.filePath.endsWith(".txt", ignoreCase = true)) {
+            runCatching {
+                val output = updatedText.joinToString(separator = "\n") { line ->
+                    when (line) {
+                        is ReaderText.Chapter -> line.title
+                        is ReaderText.Text -> line.line.text
+                        is ReaderText.Separator -> "---"
+                        is ReaderText.Image -> ""
+                    }
+                }
+                File(book.filePath).writeText(output)
+            }.onFailure {
+                editingError = "TXT file could not be saved: ${it.message ?: "unknown error"}"
+            }
+        } else {
+            editingError = "Direct editing is currently saved only for TXT files."
+        }
+    }
+
     Scaffold(
         Modifier
             .fillMaxSize()
@@ -133,6 +174,15 @@ fun ReaderScaffold(
                     isLoading = isLoading,
                     lockMenu = lockMenu,
                     leave = leave,
+                    editCurrentParagraph = {
+                        val index = (listState.firstVisibleItemIndex until displayedText.size)
+                            .firstOrNull { displayedText[it] is ReaderText.Text } ?: -1
+                        if (index >= 0) {
+                            editingIndex = index
+                            editingValue = (displayedText[index] as ReaderText.Text).line.text
+                            editingError = null
+                        }
+                    },
                     switchColorPreset = switchColorPreset,
                     showSettingsBottomSheet = showSettingsBottomSheet,
                     showChaptersDrawer = showChaptersDrawer,
@@ -151,7 +201,7 @@ fun ReaderScaffold(
                 ReaderBottomBar(
                     book = book,
                     progress = progress,
-                    text = text,
+                    text = displayedText,
                     listState = listState,
                     lockMenu = lockMenu,
                     checkpoints = checkpoints,
@@ -164,7 +214,7 @@ fun ReaderScaffold(
         }
     ) {
         ReaderLayout(
-            text = text,
+            text = displayedText,
             listState = listState,
             contentPadding = contentPadding,
             verticalPadding = verticalPadding,
@@ -231,6 +281,49 @@ fun ReaderScaffold(
 
         if (isLoading) {
             ReaderLoadingPlaceholder()
+        }
+
+        if (editingIndex >= 0) {
+            AlertDialog(
+                onDismissRequest = { editingIndex = -1 },
+                title = { Text("Edit current paragraph") },
+                text = {
+                    OutlinedTextField(
+                        value = editingValue,
+                        onValueChange = { editingValue = it },
+                        minLines = 5,
+                        maxLines = 12
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            saveEditedParagraph(editingIndex, editingValue)
+                            editingIndex = -1
+                        }
+                    ) {
+                        Text("Save")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { editingIndex = -1 }) {
+                        Text("Cancel")
+                    }
+                }
+            )
+        }
+
+        if (editingError != null) {
+            AlertDialog(
+                onDismissRequest = { editingError = null },
+                title = { Text("Edit result") },
+                text = { Text(editingError.orEmpty()) },
+                confirmButton = {
+                    Button(onClick = { editingError = null }) {
+                        Text("OK")
+                    }
+                }
+            )
         }
     }
 }

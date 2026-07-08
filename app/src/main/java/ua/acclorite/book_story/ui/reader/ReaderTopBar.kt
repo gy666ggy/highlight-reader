@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.rounded.Menu
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -49,6 +50,7 @@ fun ReaderTopBar(
     isLoading: Boolean,
     lockMenu: Boolean,
     leave: (ReaderEvent.OnLeave) -> Unit,
+    editCurrentParagraph: () -> Unit,
     switchColorPreset: (SettingsEvent.OnSwitchColorPreset) -> Unit,
     showSettingsBottomSheet: (ReaderEvent.OnShowSettingsBottomSheet) -> Unit,
     showChaptersDrawer: (ReaderEvent.OnShowChaptersDrawer) -> Unit,
@@ -136,6 +138,15 @@ fun ReaderTopBar(
                     ) {
                         showChaptersDrawer(ReaderEvent.OnShowChaptersDrawer)
                     }
+                }
+
+                IconButton(
+                    icon = Icons.Default.Edit,
+                    contentDescription = R.string.edit_current_paragraph_content_desc,
+                    disableOnClick = false,
+                    enabled = !lockMenu
+                ) {
+                    editCurrentParagraph()
                 }
 
                 IconButton(

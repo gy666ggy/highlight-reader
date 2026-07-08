@@ -29,6 +29,10 @@ class TxtTextParser @Inject constructor(
         return try {
             val readerText = mutableListOf<ReaderText>()
             var chapterAdded = false
+            val chapterTitleRegex = Regex(
+                pattern = """^\s*((第\s*[零〇一二三四五六七八九十百千万\d]+\s*[章节卷回部集篇幕].*)|(Chapter\s+\d+.*)|(\d+\s*[.、]\s*.+))\s*$""",
+                options = setOf(RegexOption.IGNORE_CASE)
+            )
 
             withContext(Dispatchers.IO) {
                 cachedFile.openInputStream()?.bufferedReader()?.use { reader ->
@@ -40,19 +44,31 @@ class TxtTextParser @Inject constructor(
                                 )
 
                                 else -> {
-                                    if (!chapterAdded && line.clearAllMarkdown().isNotBlank()) {
+                                    val cleanLine = line.clearAllMarkdown()
+                                    if (cleanLine.isNotBlank() && chapterTitleRegex.matches(cleanLine)) {
                                         readerText.add(
-                                            0, ReaderText.Chapter(
-                                                title = line.clearAllMarkdown(),
+                                            ReaderText.Chapter(
+                                                title = cleanLine,
                                                 nested = false
                                             )
                                         )
                                         chapterAdded = true
-                                    } else readerText.add(
+                                    } else {
+                                        if (!chapterAdded && cleanLine.isNotBlank()) {
+                                            readerText.add(
+                                                0, ReaderText.Chapter(
+                                                    title = cleanLine,
+                                                    nested = false
+                                                )
+                                            )
+                                            chapterAdded = true
+                                        }
+                                        readerText.add(
                                         ReaderText.Text(
                                             line = markdownParser.parse(line)
                                         )
                                     )
+                                    }
                                 }
                             }
                         }

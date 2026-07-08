@@ -3,6 +3,12 @@
 > This fork keeps Book's Story features and adds dialogue highlighting for Chinese quoted speech:
 > the quotation marks `“”` keep their original color, and only the text inside them is rendered
 > with a non-black font color instead of a background highlight.
+>
+> Additional changes in this fork:
+> - TXT chapter detection now recognizes common chapter titles such as `第1章`, `第一章`, `Chapter 1`.
+> - EPUB table of contents supports both `toc.ncx` and EPUB3 navigation documents.
+> - TXT books can be edited while reading through the reader top bar edit action.
+> - EPUB keeps the original document parsing path, while TXT continues to use reader formatting.
 
 > [!Caution]
 >
