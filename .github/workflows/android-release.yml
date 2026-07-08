@@ -17,36 +17,11 @@ on:
       - master
 
 jobs:
-  debug-build:
-    name: 构建 Debug APK
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: 拉取代码
-        uses: actions/checkout@v4
-
-      - name: 配置 JDK
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "17"
-
-      - name: 配置 Gradle
-        uses: gradle/actions/setup-gradle@v4
-
-      - name: 构建 Debug APK
-        run: ./gradlew :app:assembleDebug --stacktrace
-
-      - name: 上传 Debug APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: book-story-dialogue-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
-
   release-build:
     name: 构建签名 Release APK
     runs-on: ubuntu-latest
     if: github.event_name == 'workflow_dispatch' && inputs.build_release == 'true'
+    timeout-minutes: 20
 
     steps:
       - name: 拉取代码
