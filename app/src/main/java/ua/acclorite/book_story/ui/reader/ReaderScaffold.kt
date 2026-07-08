@@ -366,7 +366,15 @@ fun ReaderScaffold(
         if (useOriginalEpubMode && !isLoading) {
             EpubOriginalReader(
                 filePath = epubOriginalFilePath!!,
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier.fillMaxSize(),
+                onCenterTap = {
+                    menuVisibility(
+                        ReaderEvent.OnMenuVisibility(
+                            show = !showMenu,
+                            saveCheckpoint = true
+                        )
+                    )
+                }
             )
         } else {
             ReaderLayout(
