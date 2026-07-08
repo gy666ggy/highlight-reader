@@ -8,6 +8,7 @@ package ua.acclorite.book_story.ui.reader
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.net.Uri
 import androidx.core.net.toUri
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
@@ -53,7 +54,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import ua.acclorite.book_story.domain.model.library.Book
 import ua.acclorite.book_story.domain.model.reader.ReaderText
 import ua.acclorite.book_story.domain.model.reader.ReaderText.Chapter
@@ -256,19 +259,25 @@ fun ReaderScaffold(
         baseText = updatedText
 
         if (book.filePath.endsWith(".txt", ignoreCase = true)) {
-            runCatching {
-                val output = updatedText.joinToString(separator = "\n") { line ->
-                    when (line) {
-                        is ReaderText.Chapter -> line.title
-                        is ReaderText.Text -> line.line.text
-                        is ReaderText.Separator -> "---"
-                        is ReaderText.Image -> ""
+            editingError = "正在保存到手机原 TXT 文件…"
+            coroutineScope.launch {
+                val result = withContext(Dispatchers.IO) {
+                    runCatching {
+                        val output = updatedText.joinToString(separator = "\n") { line ->
+                            when (line) {
+                                is ReaderText.Chapter -> line.title
+                                is ReaderText.Text -> line.line.text
+                                is ReaderText.Separator -> "---"
+                                is ReaderText.Image -> ""
+                            }
+                        }
+                        writeOriginalTxtFile(context, book.filePath, output)
                     }
                 }
-                writeOriginalTxtFile(context, book.filePath, output)
-                editingError = "已保存并替换手机里的原 TXT 文件。"
-            }.onFailure {
-                editingError = "TXT 原文件保存失败：${it.message ?: "未知错误"}。如果这本书是旧导入的，请重新从手机文件夹导入一次，让 App 获取写入权限。"
+                editingError = result.fold(
+                    onSuccess = { "已保存并替换手机里的原 TXT 文件。" },
+                    onFailure = { "TXT 原文件保存失败：${it.message ?: "未知错误"}。如果这本书是旧导入的，请重新从手机文件夹导入一次，让 App 获取写入权限。" }
+                )
             }
         } else {
             editingError = "本章内容已在当前阅读界面更新；直接写回原文件目前只支持 TXT。"
@@ -974,19 +983,30 @@ private fun writeOriginalTxtFile(context: Context, filePath: String, text: Strin
     }
 
     context.contentResolver.persistedUriPermissions.forEach { permission ->
-        val storage = CachedFileCompat.fromUri(context, permission.uri)
+        val storage = runCatching { CachedFileCompat.fromUri(context, permission.uri) }.getOrNull()
+            ?: return@forEach
         if (!storage.isDirectory) return@forEach
         if (!filePath.startsWith(storage.path, ignoreCase = true)) return@forEach
 
-        storage.walk().forEach { file ->
-            if (file.path.equals(filePath, ignoreCase = true)) {
-                context.contentResolver.openOutputStream(file.uri, "wt")?.use { output ->
-                    output.write(text.toByteArray())
-                } ?: throw IllegalStateException("无法打开原 TXT 文件写入流")
-                return
-            }
-        }
+        val targetUri = findFileUriByPath(storage, filePath) ?: return@forEach
+        context.contentResolver.openOutputStream(targetUri, "wt")?.use { output ->
+            output.write(text.toByteArray())
+        } ?: throw IllegalStateException("无法打开原 TXT 文件写入流")
+        return
     }
 
     throw IllegalStateException("找不到可写入的原 TXT 文件")
+}
+
+private fun findFileUriByPath(
+    root: ua.acclorite.book_story.data.model.file.CachedFile,
+    targetPath: String
+): Uri? {
+    root.listFiles().forEach { child ->
+        if (child.path.equals(targetPath, ignoreCase = true)) return child.uri
+        if (child.isDirectory && targetPath.startsWith(child.path, ignoreCase = true)) {
+            findFileUriByPath(child, targetPath)?.let { return it }
+        }
+    }
+    return null
 }
