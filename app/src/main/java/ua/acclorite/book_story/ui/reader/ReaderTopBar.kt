@@ -14,9 +14,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.rounded.Menu
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.LinearProgressIndicator
@@ -37,7 +34,6 @@ import ua.acclorite.book_story.presentation.settings.SettingsEvent
 import ua.acclorite.book_story.ui.common.components.common.IconButton
 import ua.acclorite.book_story.ui.common.components.common.StyledText
 import ua.acclorite.book_story.ui.common.helpers.LocalActivity
-import ua.acclorite.book_story.ui.common.helpers.noRippleClickable
 import ua.acclorite.book_story.ui.theme.readerBarsColor
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
@@ -50,10 +46,7 @@ fun ReaderTopBar(
     isLoading: Boolean,
     lockMenu: Boolean,
     leave: (ReaderEvent.OnLeave) -> Unit,
-    editCurrentParagraph: () -> Unit,
     switchColorPreset: (SettingsEvent.OnSwitchColorPreset) -> Unit,
-    showSettingsBottomSheet: (ReaderEvent.OnShowSettingsBottomSheet) -> Unit,
-    showChaptersDrawer: (ReaderEvent.OnShowChaptersDrawer) -> Unit,
     navigateToBookInfo: (ReaderEvent.OnNavigateToBookInfo) -> Unit,
     navigateBack: (ReaderEvent.OnNavigateBack) -> Unit
 ) {
@@ -91,24 +84,7 @@ fun ReaderTopBar(
             title = {
                 StyledText(
                     text = book.title,
-                    modifier = Modifier
-                        .padding(end = 8.dp)
-                        .noRippleClickable(
-                            enabled = !lockMenu,
-                            onClick = {
-                                leave(
-                                    ReaderEvent.OnLeave(
-                                        navigate = {
-                                            navigateToBookInfo(
-                                                ReaderEvent.OnNavigateToBookInfo(
-                                                    changePath = false
-                                                )
-                                            )
-                                        }
-                                    )
-                                )
-                            }
-                        ),
+                    modifier = Modifier.padding(end = 8.dp),
                     style = LocalTextStyle.current.copy(
                         fontSize = 20.sp,
                         lineHeight = 20.sp,
@@ -127,36 +103,6 @@ fun ReaderTopBar(
                     ),
                     maxLines = 1
                 )
-            },
-            actions = {
-                if (currentChapter != null) {
-                    IconButton(
-                        icon = Icons.Rounded.Menu,
-                        contentDescription = R.string.chapters_content_desc,
-                        disableOnClick = false,
-                        enabled = !lockMenu
-                    ) {
-                        showChaptersDrawer(ReaderEvent.OnShowChaptersDrawer)
-                    }
-                }
-
-                IconButton(
-                    icon = Icons.Default.Edit,
-                    contentDescription = R.string.edit_current_paragraph_content_desc,
-                    disableOnClick = false,
-                    enabled = !lockMenu
-                ) {
-                    editCurrentParagraph()
-                }
-
-                IconButton(
-                    icon = Icons.Default.Settings,
-                    contentDescription = R.string.open_reader_settings_content_desc,
-                    disableOnClick = false,
-                    enabled = !lockMenu
-                ) {
-                    showSettingsBottomSheet(ReaderEvent.OnShowSettingsBottomSheet)
-                }
             },
             colors = TopAppBarDefaults.topAppBarColors(
                 containerColor = Color.Transparent

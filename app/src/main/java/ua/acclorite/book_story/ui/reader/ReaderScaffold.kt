@@ -7,6 +7,7 @@
 package ua.acclorite.book_story.ui.reader
 
 import android.annotation.SuppressLint
+import android.content.Context
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.PaddingValues
@@ -25,6 +26,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -35,8 +37,10 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
+import kotlinx.coroutines.launch
 import ua.acclorite.book_story.domain.model.library.Book
 import ua.acclorite.book_story.domain.model.reader.ReaderText
 import ua.acclorite.book_story.domain.model.reader.ReaderText.Chapter
@@ -126,15 +130,73 @@ fun ReaderScaffold(
     navigateToBookInfo: (ReaderEvent.OnNavigateToBookInfo) -> Unit,
     navigateBack: (ReaderEvent.OnNavigateBack) -> Unit
 ) {
-    var displayedText by remember(text) { mutableStateOf(text) }
-    var editingIndex by remember { mutableIntStateOf(-1) }
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    val extraPrefs = remember(book.id) {
+        context.getSharedPreferences("reader_extra_${book.id}", Context.MODE_PRIVATE)
+    }
+    var baseText by remember(text) { mutableStateOf(text) }
+    var replacementRules by remember(book.id) {
+        mutableStateOf(extraPrefs.getString("replacement_rules", "").orEmpty())
+    }
+    var bookmarks by remember(book.id) {
+        mutableStateOf(
+            extraPrefs.getString("bookmarks", "").orEmpty()
+                .split(",")
+                .mapNotNull { it.toIntOrNull() }
+                .toSet()
+        )
+    }
+    var displayedText by remember(baseText, replacementRules) {
+        mutableStateOf(baseText.applyReplacementRules(replacementRules))
+    }
+    var editingStartIndex by remember { mutableIntStateOf(-1) }
+    var editingEndIndex by remember { mutableIntStateOf(-1) }
     var editingValue by remember { mutableStateOf("") }
     var editingError by remember { mutableStateOf<String?>(null) }
+    var searchDialogVisible by remember { mutableStateOf(false) }
+    var searchValue by remember { mutableStateOf("") }
+    var replaceDialogVisible by remember { mutableStateOf(false) }
+    var replaceValue by remember { mutableStateOf(replacementRules) }
 
-    fun saveEditedParagraph(index: Int, value: String) {
-        val updatedText = displayedText.toMutableList()
-        updatedText[index] = ReaderText.Text(AnnotatedString(value))
-        displayedText = updatedText
+    fun persistBookmarks(value: Set<Int>) {
+        bookmarks = value
+        extraPrefs.edit().putString("bookmarks", value.sorted().joinToString(",")).apply()
+    }
+
+    fun currentChapterRange(): IntRange? {
+        if (baseText.isEmpty()) return null
+        val currentIndex = listState.firstVisibleItemIndex.coerceIn(0, (baseText.size - 1).coerceAtLeast(0))
+        val start = (currentIndex downTo 0).firstOrNull { baseText[it] is ReaderText.Chapter } ?: 0
+        val endExclusive = ((start + 1) until baseText.size).firstOrNull {
+            baseText[it] is ReaderText.Chapter
+        } ?: baseText.size
+        return if (start < endExclusive) start until endExclusive else null
+    }
+
+    fun openChapterEditor() {
+        val range = currentChapterRange() ?: return
+        editingStartIndex = range.first
+        editingEndIndex = range.last + 1
+        editingValue = baseText.subList(editingStartIndex, editingEndIndex)
+            .filterIsInstance<ReaderText.Text>()
+            .joinToString("\n") { it.line.text }
+        editingError = null
+    }
+
+    fun saveEditedChapter(value: String) {
+        if (editingStartIndex < 0 || editingEndIndex <= editingStartIndex) return
+        val updatedText = baseText.toMutableList()
+        val chapter = updatedText.getOrNull(editingStartIndex) as? ReaderText.Chapter
+        val replacement = buildList {
+            if (chapter != null) add(chapter)
+            value.lines()
+                .filter { it.isNotBlank() }
+                .forEach { add(ReaderText.Text(AnnotatedString(it))) }
+        }
+        updatedText.subList(editingStartIndex, editingEndIndex).clear()
+        updatedText.addAll(editingStartIndex, replacement)
+        baseText = updatedText
 
         if (book.filePath.endsWith(".txt", ignoreCase = true)) {
             runCatching {
@@ -151,7 +213,24 @@ fun ReaderScaffold(
                 editingError = "TXT file could not be saved: ${it.message ?: "unknown error"}"
             }
         } else {
-            editingError = "Direct editing is currently saved only for TXT files."
+            editingError = "本章内容已在当前阅读界面更新；直接写回原文件目前只支持 TXT。"
+        }
+    }
+
+    fun searchNext() {
+        val query = searchValue.trim()
+        if (displayedText.isEmpty()) return
+        if (query.isBlank()) return
+        val start = (listState.firstVisibleItemIndex + 1).coerceAtMost(displayedText.lastIndex)
+        val orderedIndexes = (start..displayedText.lastIndex) + (0 until start)
+        val target = orderedIndexes.firstOrNull { index ->
+            (displayedText[index] as? ReaderText.Text)?.line?.text?.contains(query, ignoreCase = true) == true
+        }
+        if (target != null) {
+            coroutineScope.launch { listState.animateScrollToItem(target) }
+            searchDialogVisible = false
+        } else {
+            editingError = "没有找到：$query"
         }
     }
 
@@ -174,18 +253,7 @@ fun ReaderScaffold(
                     isLoading = isLoading,
                     lockMenu = lockMenu,
                     leave = leave,
-                    editCurrentParagraph = {
-                        val index = (listState.firstVisibleItemIndex until displayedText.size)
-                            .firstOrNull { displayedText[it] is ReaderText.Text } ?: -1
-                        if (index >= 0) {
-                            editingIndex = index
-                            editingValue = (displayedText[index] as ReaderText.Text).line.text
-                            editingError = null
-                        }
-                    },
                     switchColorPreset = switchColorPreset,
-                    showSettingsBottomSheet = showSettingsBottomSheet,
-                    showChaptersDrawer = showChaptersDrawer,
                     navigateBack = navigateBack,
                     navigateToBookInfo = navigateToBookInfo
                 )
@@ -208,7 +276,32 @@ fun ReaderScaffold(
                     bottomBarPadding = bottomBarPadding,
                     restoreCheckpoint = restoreCheckpoint,
                     scroll = scroll,
-                    changeProgress = changeProgress
+                    changeProgress = changeProgress,
+                    showChapters = { showChaptersDrawer(ReaderEvent.OnShowChaptersDrawer) },
+                    showSettings = { showSettingsBottomSheet(ReaderEvent.OnShowSettingsBottomSheet) },
+                    editChapter = { openChapterEditor() },
+                    search = { searchDialogVisible = true },
+                    replaceRules = {
+                        replaceValue = replacementRules
+                        replaceDialogVisible = true
+                    },
+                    toggleBookmark = {
+                        val index = listState.firstVisibleItemIndex
+                        persistBookmarks(
+                            if (bookmarks.contains(index)) bookmarks - index else bookmarks + index
+                        )
+                        editingError = if (bookmarks.contains(index)) "已取消当前书签" else "已添加当前书签"
+                    },
+                    nextBookmark = {
+                        val current = listState.firstVisibleItemIndex
+                        val target = bookmarks.sorted().firstOrNull { it > current }
+                            ?: bookmarks.sorted().firstOrNull()
+                        if (target != null) {
+                            coroutineScope.launch { listState.animateScrollToItem(target) }
+                        } else {
+                            editingError = "还没有书签"
+                        }
+                    }
                 )
             }
         }
@@ -283,31 +376,96 @@ fun ReaderScaffold(
             ReaderLoadingPlaceholder()
         }
 
-        if (editingIndex >= 0) {
+        if (editingStartIndex >= 0) {
             AlertDialog(
-                onDismissRequest = { editingIndex = -1 },
-                title = { Text("Edit current paragraph") },
+                onDismissRequest = { editingStartIndex = -1 },
+                title = { Text("编辑当前章节") },
                 text = {
                     OutlinedTextField(
                         value = editingValue,
                         onValueChange = { editingValue = it },
-                        minLines = 5,
-                        maxLines = 12
+                        minLines = 8,
+                        maxLines = 18,
+                        label = { Text("章节内容") }
                     )
                 },
                 confirmButton = {
                     Button(
                         onClick = {
-                            saveEditedParagraph(editingIndex, editingValue)
-                            editingIndex = -1
+                            saveEditedChapter(editingValue)
+                            editingStartIndex = -1
                         }
                     ) {
-                        Text("Save")
+                        Text("保存")
                     }
                 },
                 dismissButton = {
-                    TextButton(onClick = { editingIndex = -1 }) {
-                        Text("Cancel")
+                    TextButton(onClick = { editingStartIndex = -1 }) {
+                        Text("取消")
+                    }
+                }
+            )
+        }
+
+        if (searchDialogVisible) {
+            AlertDialog(
+                onDismissRequest = { searchDialogVisible = false },
+                title = { Text("搜索内容") },
+                text = {
+                    OutlinedTextField(
+                        value = searchValue,
+                        onValueChange = { searchValue = it },
+                        label = { Text("输入要搜索的文字") },
+                        singleLine = true
+                    )
+                },
+                confirmButton = {
+                    Button(onClick = { searchNext() }) {
+                        Text("搜索下一个")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { searchDialogVisible = false }) {
+                        Text("取消")
+                    }
+                }
+            )
+        }
+
+        if (replaceDialogVisible) {
+            AlertDialog(
+                onDismissRequest = { replaceDialogVisible = false },
+                title = { Text("替换规则") },
+                text = {
+                    OutlinedTextField(
+                        value = replaceValue,
+                        onValueChange = { replaceValue = it },
+                        minLines = 5,
+                        maxLines = 10,
+                        label = { Text("每行一条：原文=>替换后") }
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            replacementRules = replaceValue
+                            extraPrefs.edit().putString("replacement_rules", replacementRules).apply()
+                            replaceDialogVisible = false
+                        }
+                    ) {
+                        Text("应用")
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = {
+                            replaceValue = ""
+                            replacementRules = ""
+                            extraPrefs.edit().remove("replacement_rules").apply()
+                            replaceDialogVisible = false
+                        }
+                    ) {
+                        Text("清空")
                     }
                 }
             )
@@ -316,7 +474,7 @@ fun ReaderScaffold(
         if (editingError != null) {
             AlertDialog(
                 onDismissRequest = { editingError = null },
-                title = { Text("Edit result") },
+                title = { Text("提示") },
                 text = { Text(editingError.orEmpty()) },
                 confirmButton = {
                     Button(onClick = { editingError = null }) {
@@ -325,5 +483,24 @@ fun ReaderScaffold(
                 }
             )
         }
+    }
+}
+
+private fun List<ReaderText>.applyReplacementRules(rulesText: String): List<ReaderText> {
+    val rules = rulesText.lines().mapNotNull { line ->
+        val separator = line.indexOf("=>")
+        if (separator <= 0) return@mapNotNull null
+        val source = line.substring(0, separator)
+        val target = line.substring(separator + 2)
+        if (source.isBlank()) null else source to target
+    }
+    if (rules.isEmpty()) return this
+
+    return map { entry ->
+        if (entry !is ReaderText.Text) return@map entry
+        val replaced = rules.fold(entry.line.text) { current, rule ->
+            current.replace(rule.first, rule.second)
+        }
+        if (replaced == entry.line.text) entry else ReaderText.Text(AnnotatedString(replaced))
     }
 }

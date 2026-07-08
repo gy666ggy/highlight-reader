@@ -8,6 +8,7 @@ package ua.acclorite.book_story.ui.reader
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -30,10 +31,12 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -62,7 +65,14 @@ fun ReaderBottomBar(
     bottomBarPadding: Dp,
     restoreCheckpoint: (ReaderEvent.OnRestoreCheckpoint) -> Unit,
     scroll: (ReaderEvent.OnScroll) -> Unit,
-    changeProgress: (ReaderEvent.OnChangeProgress) -> Unit
+    changeProgress: (ReaderEvent.OnChangeProgress) -> Unit,
+    showChapters: () -> Unit,
+    showSettings: () -> Unit,
+    editChapter: () -> Unit,
+    search: () -> Unit,
+    replaceRules: () -> Unit,
+    toggleBookmark: () -> Unit,
+    nextBookmark: () -> Unit
 ) {
     val currentIndex by remember {
         derivedStateOf {
@@ -153,6 +163,45 @@ fun ReaderBottomBar(
                 }
             )
         }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            BottomAction("目录", enabled = !lockMenu, onClick = showChapters)
+            BottomAction("书签", enabled = !lockMenu, onClick = toggleBookmark)
+            BottomAction("去书签", enabled = !lockMenu, onClick = nextBookmark)
+            BottomAction("搜索", enabled = !lockMenu, onClick = search)
+            BottomAction("替换", enabled = !lockMenu, onClick = replaceRules)
+            BottomAction("编辑本章", enabled = !lockMenu, onClick = editChapter)
+            BottomAction("设置", enabled = !lockMenu, onClick = showSettings)
+        }
+    }
+}
+
+@Composable
+private fun BottomAction(
+    text: String,
+    enabled: Boolean,
+    onClick: () -> Unit
+) {
+    TextButton(
+        enabled = enabled,
+        onClick = onClick
+    ) {
+        StyledText(
+            text = text,
+            style = MaterialTheme.typography.labelLarge.copy(
+                color = if (enabled) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                }
+            )
+        )
     }
 }
 
