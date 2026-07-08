@@ -14,15 +14,18 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -179,6 +182,7 @@ fun ReaderScaffold(
     var replaceTarget by remember { mutableStateOf("") }
     var replaceUseRegex by remember { mutableStateOf(false) }
     var replaceScope by remember { mutableStateOf("内容") }
+    var bookmarkDialogVisible by remember { mutableStateOf(false) }
     var highlightColorDialogVisible by remember { mutableStateOf(false) }
 
     fun loadReplaceFormFromRules() {
@@ -324,6 +328,27 @@ fun ReaderScaffold(
             ?: bookmarks.sortedWith(compareBy({ it.index }, { it.offset })).firstOrNull()
     }
 
+    fun chapterTitleFor(index: Int): String {
+        return (index downTo 0).firstNotNullOfOrNull { position ->
+            (displayedText.getOrNull(position) as? ReaderText.Chapter)?.title
+        } ?: book.title
+    }
+
+    fun previewFor(index: Int): String {
+        val textLine = (displayedText.getOrNull(index) as? ReaderText.Text)?.line?.text
+            ?: ((index + 1) until displayedText.size).firstNotNullOfOrNull { position ->
+                (displayedText.getOrNull(position) as? ReaderText.Text)?.line?.text
+            }
+            ?: ""
+        return textLine.trim().take(80).ifBlank { "当前位置" }
+    }
+
+    fun progressFor(index: Int): String {
+        if (displayedText.isEmpty()) return "0%"
+        val progressValue = ((index + 1).toFloat() / displayedText.size * 100).coerceIn(0f, 100f)
+        return "${"%.1f".format(progressValue)}%"
+    }
+
     Scaffold(
         Modifier
             .fillMaxSize()
@@ -378,13 +403,7 @@ fun ReaderScaffold(
                         loadReplaceFormFromRules()
                         replaceDialogVisible = true
                     },
-                    toggleBookmark = {
-                        val point = currentBookmarkPoint()
-                        persistBookmarks(
-                            if (bookmarks.contains(point)) bookmarks - point else bookmarks + point
-                        )
-                        editingError = if (bookmarks.contains(point)) "已取消当前页书签" else "已添加当前页书签"
-                    },
+                    toggleBookmark = { bookmarkDialogVisible = true },
                     nextBookmark = {
                         val target = nextBookmarkPoint()
                         if (target != null) {
@@ -548,6 +567,129 @@ fun ReaderScaffold(
                 dismissButton = {
                     TextButton(onClick = { searchDialogVisible = false }) {
                         Text("取消")
+                    }
+                }
+            )
+        }
+
+        if (bookmarkDialogVisible) {
+            AlertDialog(
+                onDismissRequest = { bookmarkDialogVisible = false },
+                title = { Text("书签管理") },
+                text = {
+                    Column(
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(18.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "目录",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = "书签",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        if (bookmarks.isEmpty()) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 260.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Text(
+                                        text = "(๑•́ ₃ •̀๑)",
+                                        style = MaterialTheme.typography.headlineLarge
+                                    )
+                                    Text(
+                                        text = "暂无书签",
+                                        style = MaterialTheme.typography.bodyLarge
+                                    )
+                                }
+                            }
+                        } else {
+                            LazyColumn(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = 420.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                items(
+                                    bookmarks.sortedWith(compareBy({ it.index }, { it.offset }))
+                                ) { point ->
+                                    Card(
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(12.dp),
+                                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Text(
+                                                text = chapterTitleFor(point.index),
+                                                style = MaterialTheme.typography.titleMedium,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                            Text(
+                                                text = "位置：${point.index + 1} · 进度：${progressFor(point.index)}",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                            Text(
+                                                text = previewFor(point.index),
+                                                style = MaterialTheme.typography.bodyMedium
+                                            )
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.End
+                                            ) {
+                                                TextButton(
+                                                    onClick = {
+                                                        jumpToBookmark(point)
+                                                        bookmarkDialogVisible = false
+                                                    }
+                                                ) {
+                                                    Text("跳转")
+                                                }
+                                                TextButton(
+                                                    onClick = {
+                                                        persistBookmarks(bookmarks - point)
+                                                    }
+                                                ) {
+                                                    Text("删除")
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            val point = currentBookmarkPoint()
+                            persistBookmarks(bookmarks + point)
+                        }
+                    ) {
+                        Text("添加当前页")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { bookmarkDialogVisible = false }) {
+                        Text("关闭")
                     }
                 }
             )
