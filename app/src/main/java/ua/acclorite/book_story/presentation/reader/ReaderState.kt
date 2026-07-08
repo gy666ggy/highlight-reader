@@ -20,7 +20,6 @@ import ua.acclorite.book_story.presentation.reader.model.Checkpoint
 data class ReaderState(
     val book: Book = Book.default,
     val text: List<ReaderText> = emptyList(),
-    val epubOriginalFilePath: String? = null,
     val listState: LazyListState = LazyListState(),
 
     val currentChapter: Chapter? = null,

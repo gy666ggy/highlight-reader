@@ -37,7 +37,6 @@ import ua.acclorite.book_story.ui.theme.model.HorizontalAlignment
 fun ReaderContent(
     book: Book,
     text: List<ReaderText>,
-    epubOriginalFilePath: String?,
     bottomSheet: BottomSheet?,
     drawer: Drawer?,
     listState: LazyListState,
@@ -124,7 +123,6 @@ fun ReaderContent(
         ReaderScaffold(
             book = book,
             text = text,
-            epubOriginalFilePath = epubOriginalFilePath,
             listState = listState,
             currentChapter = currentChapter,
             nestedScrollConnection = nestedScrollConnection,

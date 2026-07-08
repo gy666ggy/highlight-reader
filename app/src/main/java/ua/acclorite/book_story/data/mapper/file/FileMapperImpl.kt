@@ -35,7 +35,6 @@ class FileMapperImpl @Inject constructor(
             name = cachedFile.name,
             uri = cachedFile.uri.toString(),
             path = cachedFile.path,
-            rawPath = cachedFile.rawFile?.absolutePath,
             size = cachedFile.size,
             lastModified = cachedFile.lastModified,
             isDirectory = cachedFile.isDirectory
