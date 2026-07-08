@@ -1,0 +1,89 @@
+name: Android Release Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_release:
+        description: "是否构建签名 Release APK/AAB"
+        required: true
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  debug-build:
+    name: 构建 Debug APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 拉取代码
+        uses: actions/checkout@v4
+
+      - name: 配置 JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: 配置 Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: 构建 Debug APK
+        run: ./gradlew :app:assembleDebug --stacktrace
+
+      - name: 上传 Debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: book-story-dialogue-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
+
+  release-build:
+    name: 构建签名 Release APK 和 AAB
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && inputs.build_release == 'true'
+
+    steps:
+      - name: 拉取代码
+        uses: actions/checkout@v4
+
+      - name: 配置 JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: 配置 Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: 还原签名证书
+        run: |
+          mkdir -p app/release
+          printf "%s" "$ANDROID_KEYSTORE_BASE64" | base64 --decode > app/release/highlight-reader-release.jks
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+
+      - name: 构建 Release APK 和 AAB
+        run: ./gradlew :app:assembleRelease :app:bundleRelease --stacktrace
+        env:
+          ANDROID_KEYSTORE_FILE: release/highlight-reader-release.jks
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+
+      - name: 上传 Release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: book-story-dialogue-release-apk
+          path: app/build/outputs/apk/release/*.apk
+
+      - name: 上传 Release AAB
+        uses: actions/upload-artifact@v4
+        with:
+          name: book-story-dialogue-release-aab
+          path: app/build/outputs/bundle/release/*.aab

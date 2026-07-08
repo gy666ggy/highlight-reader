@@ -1,0 +1,8 @@
+# Ignore all .idea files
+*
+
+# except
+!kotlinc.xml
+!codeStyles
+!codeStyles/codeStyleConfig.xml
+!codeStyles/Project.xml
