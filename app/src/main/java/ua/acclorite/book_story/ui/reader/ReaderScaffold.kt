@@ -12,6 +12,8 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -20,6 +22,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -171,7 +174,40 @@ fun ReaderScaffold(
     var searchResults by remember { mutableStateOf(emptyList<SearchResult>()) }
     var replaceDialogVisible by remember { mutableStateOf(false) }
     var replaceValue by remember { mutableStateOf(replacementRules) }
+    var replaceRuleName by remember { mutableStateOf("默认替换规则") }
+    var replaceSource by remember { mutableStateOf("") }
+    var replaceTarget by remember { mutableStateOf("") }
+    var replaceUseRegex by remember { mutableStateOf(false) }
+    var replaceScope by remember { mutableStateOf("内容") }
     var highlightColorDialogVisible by remember { mutableStateOf(false) }
+
+    fun loadReplaceFormFromRules() {
+        val firstRule = replacementRules.lines().firstOrNull { it.contains("=>") }.orEmpty()
+        val source = firstRule.substringBefore("=>", "")
+        replaceUseRegex = source.startsWith("正则:") || source.startsWith("regex:")
+        replaceSource = source
+            .removePrefix("正则:")
+            .removePrefix("regex:")
+        replaceTarget = firstRule.substringAfter("=>", "")
+        if (replaceRuleName.isBlank()) replaceRuleName = "默认替换规则"
+    }
+
+    fun saveReplaceForm() {
+        val source = replaceSource.trim()
+        if (source.isBlank()) {
+            editingError = "匹配规则不能为空"
+            return
+        }
+        val rule = "${if (replaceUseRegex) "正则:" else ""}$source=>$replaceTarget"
+        replacementRules = rule
+        replaceValue = rule
+        globalPrefs.edit()
+            .putString("replacement_rules", replacementRules)
+            .putString("replacement_rule_name", replaceRuleName)
+            .putString("replacement_rule_scope", replaceScope)
+            .apply()
+        replaceDialogVisible = false
+    }
 
     fun persistBookmarks(value: Set<BookmarkPoint>) {
         bookmarks = value
@@ -337,6 +373,9 @@ fun ReaderScaffold(
                     search = { searchDialogVisible = true },
                     replaceRules = {
                         replaceValue = replacementRules
+                        replaceRuleName = globalPrefs.getString("replacement_rule_name", "默认替换规则").orEmpty()
+                        replaceScope = globalPrefs.getString("replacement_rule_scope", "内容").orEmpty().ifBlank { "内容" }
+                        loadReplaceFormFromRules()
                         replaceDialogVisible = true
                     },
                     toggleBookmark = {
@@ -517,33 +556,132 @@ fun ReaderScaffold(
         if (replaceDialogVisible) {
             AlertDialog(
                 onDismissRequest = { replaceDialogVisible = false },
-                title = { Text("替换规则") },
+                title = { Text("新增替换规则") },
                 text = {
-                    OutlinedTextField(
-                        value = replaceValue,
-                        onValueChange = { replaceValue = it },
-                        minLines = 5,
-                        maxLines = 10,
-                        label = { Text("全局规则：原文=>替换后；正则：正则:表达式=>替换后") }
-                    )
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 520.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        item {
+                            OutlinedTextField(
+                                value = replaceRuleName,
+                                onValueChange = { replaceRuleName = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                label = { Text("规则名称") }
+                            )
+                        }
+                        item {
+                            OutlinedTextField(
+                                value = "默认分组",
+                                onValueChange = {},
+                                modifier = Modifier.fillMaxWidth(),
+                                enabled = false,
+                                singleLine = true,
+                                label = { Text("分组") }
+                            )
+                        }
+                        item {
+                            OutlinedTextField(
+                                value = replaceSource,
+                                onValueChange = { replaceSource = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                minLines = 3,
+                                maxLines = 5,
+                                label = { Text("匹配规则") }
+                            )
+                        }
+                        item {
+                            OutlinedTextField(
+                                value = replaceTarget,
+                                onValueChange = { replaceTarget = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                minLines = 3,
+                                maxLines = 5,
+                                label = { Text("替换为") }
+                            )
+                        }
+                        item {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                AssistChip(
+                                    onClick = { replaceScope = "标题" },
+                                    label = { Text(if (replaceScope == "标题") "标题 ✓" else "标题") }
+                                )
+                                AssistChip(
+                                    onClick = { replaceScope = "内容" },
+                                    label = { Text(if (replaceScope == "内容") "内容 ✓" else "内容") }
+                                )
+                            }
+                        }
+                        item {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("使用正则表达式")
+                                TextButton(onClick = { replaceUseRegex = !replaceUseRegex }) {
+                                    Text(if (replaceUseRegex) "已开启" else "已关闭")
+                                }
+                            }
+                        }
+                        item {
+                            OutlinedTextField(
+                                value = "",
+                                onValueChange = {},
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                label = { Text("特定范围") },
+                                placeholder = { Text("全部书籍") }
+                            )
+                        }
+                        item {
+                            OutlinedTextField(
+                                value = "",
+                                onValueChange = {},
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                label = { Text("排除范围") },
+                                placeholder = { Text("无") }
+                            )
+                        }
+                        item {
+                            OutlinedTextField(
+                                value = "3000",
+                                onValueChange = {},
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                label = { Text("超时时间（毫秒）") }
+                            )
+                        }
+                    }
                 },
                 confirmButton = {
                     Button(
-                        onClick = {
-                            replacementRules = replaceValue
-                            globalPrefs.edit().putString("replacement_rules", replacementRules).apply()
-                            replaceDialogVisible = false
-                        }
+                        onClick = { saveReplaceForm() }
                     ) {
-                        Text("应用")
+                        Text("保存")
                     }
                 },
                 dismissButton = {
                     TextButton(
                         onClick = {
+                            replaceRuleName = "默认替换规则"
+                            replaceSource = ""
+                            replaceTarget = ""
+                            replaceUseRegex = false
                             replaceValue = ""
                             replacementRules = ""
-                            globalPrefs.edit().remove("replacement_rules").apply()
+                            globalPrefs.edit()
+                                .remove("replacement_rules")
+                                .remove("replacement_rule_name")
+                                .remove("replacement_rule_scope")
+                                .apply()
                             replaceDialogVisible = false
                         }
                     ) {
