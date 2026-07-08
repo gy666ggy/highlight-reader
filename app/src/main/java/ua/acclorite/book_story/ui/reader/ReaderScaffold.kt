@@ -10,9 +10,13 @@ import android.annotation.SuppressLint
 import android.content.Context
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -32,6 +36,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.AnnotatedString
@@ -40,6 +45,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import ua.acclorite.book_story.domain.model.library.Book
 import ua.acclorite.book_story.domain.model.reader.ReaderText
@@ -135,17 +141,23 @@ fun ReaderScaffold(
     val extraPrefs = remember(book.id) {
         context.getSharedPreferences("reader_extra_${book.id}", Context.MODE_PRIVATE)
     }
+    val globalPrefs = remember {
+        context.getSharedPreferences("reader_global_tools", Context.MODE_PRIVATE)
+    }
     var baseText by remember(text) { mutableStateOf(text) }
-    var replacementRules by remember(book.id) {
-        mutableStateOf(extraPrefs.getString("replacement_rules", "").orEmpty())
+    var replacementRules by remember {
+        mutableStateOf(globalPrefs.getString("replacement_rules", "").orEmpty())
     }
     var bookmarks by remember(book.id) {
         mutableStateOf(
             extraPrefs.getString("bookmarks", "").orEmpty()
                 .split(",")
-                .mapNotNull { it.toIntOrNull() }
+                .mapNotNull { BookmarkPoint.fromStorage(it) }
                 .toSet()
         )
+    }
+    var dialogueHighlightColor by remember {
+        mutableStateOf(globalPrefs.getInt("dialogue_highlight_color", Color(0xFF1565C0).toArgb()))
     }
     var displayedText by remember(baseText, replacementRules) {
         mutableStateOf(baseText.applyReplacementRules(replacementRules))
@@ -156,18 +168,23 @@ fun ReaderScaffold(
     var editingError by remember { mutableStateOf<String?>(null) }
     var searchDialogVisible by remember { mutableStateOf(false) }
     var searchValue by remember { mutableStateOf("") }
+    var searchResults by remember { mutableStateOf(emptyList<SearchResult>()) }
     var replaceDialogVisible by remember { mutableStateOf(false) }
     var replaceValue by remember { mutableStateOf(replacementRules) }
+    var highlightColorDialogVisible by remember { mutableStateOf(false) }
 
-    fun persistBookmarks(value: Set<Int>) {
+    fun persistBookmarks(value: Set<BookmarkPoint>) {
         bookmarks = value
-        extraPrefs.edit().putString("bookmarks", value.sorted().joinToString(",")).apply()
+        extraPrefs.edit()
+            .putString("bookmarks", value.sortedWith(compareBy({ it.index }, { it.offset })).joinToString(",") { it.toStorage() })
+            .apply()
     }
 
-    fun currentChapterRange(): IntRange? {
+    fun currentPageToChapterEndRange(): IntRange? {
         if (baseText.isEmpty()) return null
         val currentIndex = listState.firstVisibleItemIndex.coerceIn(0, (baseText.size - 1).coerceAtLeast(0))
-        val start = (currentIndex downTo 0).firstOrNull { baseText[it] is ReaderText.Chapter } ?: 0
+        val start = (currentIndex until baseText.size).firstOrNull { baseText[it] is ReaderText.Text }
+            ?: return null
         val endExclusive = ((start + 1) until baseText.size).firstOrNull {
             baseText[it] is ReaderText.Chapter
         } ?: baseText.size
@@ -175,7 +192,7 @@ fun ReaderScaffold(
     }
 
     fun openChapterEditor() {
-        val range = currentChapterRange() ?: return
+        val range = currentPageToChapterEndRange() ?: return
         editingStartIndex = range.first
         editingEndIndex = range.last + 1
         editingValue = baseText.subList(editingStartIndex, editingEndIndex)
@@ -187,9 +204,7 @@ fun ReaderScaffold(
     fun saveEditedChapter(value: String) {
         if (editingStartIndex < 0 || editingEndIndex <= editingStartIndex) return
         val updatedText = baseText.toMutableList()
-        val chapter = updatedText.getOrNull(editingStartIndex) as? ReaderText.Chapter
         val replacement = buildList {
-            if (chapter != null) add(chapter)
             value.lines()
                 .filter { it.isNotBlank() }
                 .forEach { add(ReaderText.Text(AnnotatedString(it))) }
@@ -217,21 +232,60 @@ fun ReaderScaffold(
         }
     }
 
-    fun searchNext() {
+    fun buildSearchResults() {
         val query = searchValue.trim()
-        if (displayedText.isEmpty()) return
-        if (query.isBlank()) return
-        val start = (listState.firstVisibleItemIndex + 1).coerceAtMost(displayedText.lastIndex)
-        val orderedIndexes = (start..displayedText.lastIndex) + (0 until start)
-        val target = orderedIndexes.firstOrNull { index ->
-            (displayedText[index] as? ReaderText.Text)?.line?.text?.contains(query, ignoreCase = true) == true
+        if (displayedText.isEmpty() || query.isBlank()) {
+            searchResults = emptyList()
+            return
         }
-        if (target != null) {
-            coroutineScope.launch { listState.animateScrollToItem(target) }
-            searchDialogVisible = false
-        } else {
+        var chapter = "未命名章节"
+        searchResults = displayedText.flatMapIndexed { index, entry ->
+            when (entry) {
+                is ReaderText.Chapter -> {
+                    chapter = entry.title
+                    emptyList()
+                }
+                is ReaderText.Text -> entry.line.text.findAllPlain(query).map { charIndex ->
+                    SearchResult(
+                        index = index,
+                        charIndex = charIndex,
+                        chapter = chapter,
+                        preview = entry.line.text.makePreview(charIndex, query.length)
+                    )
+                }
+                else -> emptyList()
+            }
+        }
+        if (searchResults.isEmpty()) {
             editingError = "没有找到：$query"
         }
+    }
+
+    fun jumpToSearchResult(result: SearchResult) {
+        coroutineScope.launch {
+            listState.animateScrollToItem(result.index)
+        }
+        searchDialogVisible = false
+    }
+
+    fun currentBookmarkPoint(): BookmarkPoint {
+        return BookmarkPoint(
+            index = listState.firstVisibleItemIndex,
+            offset = listState.firstVisibleItemScrollOffset
+        )
+    }
+
+    fun jumpToBookmark(point: BookmarkPoint) {
+        coroutineScope.launch {
+            listState.animateScrollToItem(point.index, point.offset)
+        }
+    }
+
+    fun nextBookmarkPoint(): BookmarkPoint? {
+        val current = currentBookmarkPoint()
+        return bookmarks.sortedWith(compareBy({ it.index }, { it.offset }))
+            .firstOrNull { it.index > current.index || (it.index == current.index && it.offset > current.offset) }
+            ?: bookmarks.sortedWith(compareBy({ it.index }, { it.offset })).firstOrNull()
     }
 
     Scaffold(
@@ -286,73 +340,80 @@ fun ReaderScaffold(
                         replaceDialogVisible = true
                     },
                     toggleBookmark = {
-                        val index = listState.firstVisibleItemIndex
+                        val point = currentBookmarkPoint()
                         persistBookmarks(
-                            if (bookmarks.contains(index)) bookmarks - index else bookmarks + index
+                            if (bookmarks.contains(point)) bookmarks - point else bookmarks + point
                         )
-                        editingError = if (bookmarks.contains(index)) "已取消当前书签" else "已添加当前书签"
+                        editingError = if (bookmarks.contains(point)) "已取消当前页书签" else "已添加当前页书签"
                     },
                     nextBookmark = {
-                        val current = listState.firstVisibleItemIndex
-                        val target = bookmarks.sorted().firstOrNull { it > current }
-                            ?: bookmarks.sorted().firstOrNull()
+                        val target = nextBookmarkPoint()
                         if (target != null) {
-                            coroutineScope.launch { listState.animateScrollToItem(target) }
+                            jumpToBookmark(target)
                         } else {
                             editingError = "还没有书签"
                         }
-                    }
+                    },
+                    highlightColor = { highlightColorDialogVisible = true }
                 )
             }
         }
     ) {
-        ReaderLayout(
-            text = displayedText,
-            listState = listState,
-            contentPadding = contentPadding,
-            verticalPadding = verticalPadding,
-            horizontalGesture = horizontalGesture,
-            horizontalGestureScroll = horizontalGestureScroll,
-            horizontalGestureSensitivity = horizontalGestureSensitivity,
-            horizontalGestureAlphaAnim = horizontalGestureAlphaAnim,
-            horizontalGesturePullAnim = horizontalGesturePullAnim,
-            horizontalGestureDisableScrolling = horizontalGestureDisableScrolling,
-            highlightedReading = highlightedReading,
-            highlightedReadingThickness = highlightedReadingThickness,
-            progress = progress,
-            progressBar = progressBar,
-            progressBarPadding = progressBarPadding,
-            progressBarAlignment = progressBarAlignment,
-            progressBarFontSize = progressBarFontSize,
-            paragraphHeight = paragraphHeight,
-            sidePadding = sidePadding,
-            backgroundColor = backgroundColor,
-            fontColor = fontColor,
-            images = images,
-            imagesCaptions = imagesCaptions,
-            imagesCornersRoundness = imagesCornersRoundness,
-            imagesAlignment = imagesAlignment,
-            imagesWidth = imagesWidth,
-            imagesColorEffects = imagesColorEffects,
-            fontFamily = fontFamily,
-            lineHeight = lineHeight,
-            fontThickness = fontThickness,
-            fontStyle = fontStyle,
-            chapterTitleAlignment = chapterTitleAlignment,
-            textAlignment = textAlignment,
-            horizontalAlignment = horizontalAlignment,
-            fontSize = fontSize,
-            letterSpacing = letterSpacing,
-            paragraphIndentation = paragraphIndentation,
-            doubleClickTranslation = doubleClickTranslation,
-            isLoading = isLoading,
-            showMenu = showMenu,
-            menuVisibility = menuVisibility,
-            openShareApp = openShareApp,
-            openWebBrowser = openWebBrowser,
-            openTranslator = openTranslator,
-            openDictionary = openDictionary
-        )
+        if (book.filePath.endsWith(".epub", ignoreCase = true) && !isLoading) {
+            EpubOriginalReader(
+                filePath = book.filePath,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            ReaderLayout(
+                text = displayedText,
+                listState = listState,
+                contentPadding = contentPadding,
+                verticalPadding = verticalPadding,
+                horizontalGesture = horizontalGesture,
+                horizontalGestureScroll = horizontalGestureScroll,
+                horizontalGestureSensitivity = horizontalGestureSensitivity,
+                horizontalGestureAlphaAnim = horizontalGestureAlphaAnim,
+                horizontalGesturePullAnim = horizontalGesturePullAnim,
+                horizontalGestureDisableScrolling = horizontalGestureDisableScrolling,
+                highlightedReading = highlightedReading,
+                highlightedReadingThickness = highlightedReadingThickness,
+                dialogueHighlightColor = Color(dialogueHighlightColor),
+                progress = progress,
+                progressBar = progressBar,
+                progressBarPadding = progressBarPadding,
+                progressBarAlignment = progressBarAlignment,
+                progressBarFontSize = progressBarFontSize,
+                paragraphHeight = paragraphHeight,
+                sidePadding = sidePadding,
+                backgroundColor = backgroundColor,
+                fontColor = fontColor,
+                images = images,
+                imagesCaptions = imagesCaptions,
+                imagesCornersRoundness = imagesCornersRoundness,
+                imagesAlignment = imagesAlignment,
+                imagesWidth = imagesWidth,
+                imagesColorEffects = imagesColorEffects,
+                fontFamily = fontFamily,
+                lineHeight = lineHeight,
+                fontThickness = fontThickness,
+                fontStyle = fontStyle,
+                chapterTitleAlignment = chapterTitleAlignment,
+                textAlignment = textAlignment,
+                horizontalAlignment = horizontalAlignment,
+                fontSize = fontSize,
+                letterSpacing = letterSpacing,
+                paragraphIndentation = paragraphIndentation,
+                doubleClickTranslation = doubleClickTranslation,
+                isLoading = isLoading,
+                showMenu = showMenu,
+                menuVisibility = menuVisibility,
+                openShareApp = openShareApp,
+                openWebBrowser = openWebBrowser,
+                openTranslator = openTranslator,
+                openDictionary = openDictionary
+            )
+        }
 
         ReaderPerceptionExpander(
             perceptionExpander = perceptionExpander,
@@ -412,16 +473,34 @@ fun ReaderScaffold(
                 onDismissRequest = { searchDialogVisible = false },
                 title = { Text("搜索内容") },
                 text = {
-                    OutlinedTextField(
-                        value = searchValue,
-                        onValueChange = { searchValue = it },
-                        label = { Text("输入要搜索的文字") },
-                        singleLine = true
-                    )
+                    Column {
+                        OutlinedTextField(
+                            value = searchValue,
+                            onValueChange = { searchValue = it },
+                            label = { Text("输入要搜索的文字") },
+                            singleLine = true
+                        )
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 360.dp)
+                        ) {
+                            items(searchResults) { result ->
+                                TextButton(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    onClick = { jumpToSearchResult(result) }
+                                ) {
+                                    Text(
+                                        text = "${result.chapter}\n第 ${result.charIndex + 1} 字：${result.preview}"
+                                    )
+                                }
+                            }
+                        }
+                    }
                 },
                 confirmButton = {
-                    Button(onClick = { searchNext() }) {
-                        Text("搜索下一个")
+                    Button(onClick = { buildSearchResults() }) {
+                        Text("搜索")
                     }
                 },
                 dismissButton = {
@@ -442,14 +521,14 @@ fun ReaderScaffold(
                         onValueChange = { replaceValue = it },
                         minLines = 5,
                         maxLines = 10,
-                        label = { Text("每行一条：原文=>替换后") }
+                        label = { Text("全局规则：原文=>替换后；正则：正则:表达式=>替换后") }
                     )
                 },
                 confirmButton = {
                     Button(
                         onClick = {
                             replacementRules = replaceValue
-                            extraPrefs.edit().putString("replacement_rules", replacementRules).apply()
+                            globalPrefs.edit().putString("replacement_rules", replacementRules).apply()
                             replaceDialogVisible = false
                         }
                     ) {
@@ -461,11 +540,44 @@ fun ReaderScaffold(
                         onClick = {
                             replaceValue = ""
                             replacementRules = ""
-                            extraPrefs.edit().remove("replacement_rules").apply()
+                            globalPrefs.edit().remove("replacement_rules").apply()
                             replaceDialogVisible = false
                         }
                     ) {
                         Text("清空")
+                    }
+                }
+            )
+        }
+
+        if (highlightColorDialogVisible) {
+            AlertDialog(
+                onDismissRequest = { highlightColorDialogVisible = false },
+                title = { Text("对话高亮颜色") },
+                text = {
+                    Column {
+                        listOf(
+                            "蓝色" to Color(0xFF1565C0),
+                            "红色" to Color(0xFFC62828),
+                            "绿色" to Color(0xFF2E7D32),
+                            "紫色" to Color(0xFF6A1B9A),
+                            "橙色" to Color(0xFFEF6C00),
+                        ).forEach { (name, color) ->
+                            TextButton(
+                                onClick = {
+                                    dialogueHighlightColor = color.toArgb()
+                                    globalPrefs.edit().putInt("dialogue_highlight_color", dialogueHighlightColor).apply()
+                                    highlightColorDialogVisible = false
+                                }
+                            ) {
+                                Text(name, color = color)
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { highlightColorDialogVisible = false }) {
+                        Text("关闭")
                     }
                 }
             )
@@ -492,15 +604,71 @@ private fun List<ReaderText>.applyReplacementRules(rulesText: String): List<Read
         if (separator <= 0) return@mapNotNull null
         val source = line.substring(0, separator)
         val target = line.substring(separator + 2)
-        if (source.isBlank()) null else source to target
+        if (source.isBlank()) null else ReplacementRule(source, target)
     }
     if (rules.isEmpty()) return this
 
     return map { entry ->
         if (entry !is ReaderText.Text) return@map entry
         val replaced = rules.fold(entry.line.text) { current, rule ->
-            current.replace(rule.first, rule.second)
+            rule.apply(current)
         }
         if (replaced == entry.line.text) entry else ReaderText.Text(AnnotatedString(replaced))
     }
+}
+
+private data class ReplacementRule(
+    val source: String,
+    val target: String
+) {
+    fun apply(text: String): String {
+        return if (source.startsWith("正则:") || source.startsWith("regex:")) {
+            val pattern = source.substringAfter(":")
+            runCatching { Regex(pattern).replace(text, target) }.getOrDefault(text)
+        } else {
+            text.replace(source, target)
+        }
+    }
+}
+
+private data class SearchResult(
+    val index: Int,
+    val charIndex: Int,
+    val chapter: String,
+    val preview: String
+)
+
+private data class BookmarkPoint(
+    val index: Int,
+    val offset: Int
+) {
+    fun toStorage(): String = "$index:$offset"
+
+    companion object {
+        fun fromStorage(value: String): BookmarkPoint? {
+            val index = value.substringBefore(":").toIntOrNull() ?: return null
+            val offset = value.substringAfter(":", "0").toIntOrNull() ?: 0
+            return BookmarkPoint(index, offset)
+        }
+    }
+}
+
+private fun String.findAllPlain(query: String): List<Int> {
+    val results = mutableListOf<Int>()
+    var start = 0
+    while (start <= length) {
+        val index = indexOf(query, startIndex = start, ignoreCase = true)
+        if (index < 0) break
+        results += index
+        start = index + query.length.coerceAtLeast(1)
+    }
+    return results
+}
+
+private fun String.makePreview(charIndex: Int, queryLength: Int): String {
+    val start = (charIndex - 18).coerceAtLeast(0)
+    val end = (charIndex + queryLength + 28).coerceAtMost(length)
+    val prefix = if (start > 0) "…" else ""
+    val suffix = if (end < length) "…" else ""
+    return prefix + substring(start, end) + suffix
 }

@@ -11,9 +11,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 
-private val DialogueHighlightColor = Color(0xFF1565C0)
-
-fun AnnotatedString.withDialogueHighlight(): AnnotatedString {
+fun AnnotatedString.withDialogueHighlight(color: Color): AnnotatedString {
     val original = this
     val ranges = original.text.dialogueInnerRanges()
     if (ranges.isEmpty()) return original
@@ -38,7 +36,7 @@ fun AnnotatedString.withDialogueHighlight(): AnnotatedString {
 
         ranges.forEach { range ->
             addStyle(
-                style = SpanStyle(color = DialogueHighlightColor),
+                style = SpanStyle(color = color),
                 start = range.first,
                 end = range.last + 1
             )

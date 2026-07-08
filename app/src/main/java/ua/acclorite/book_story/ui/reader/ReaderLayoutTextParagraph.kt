@@ -48,6 +48,7 @@ fun LazyItemScope.ReaderLayoutTextParagraph(
     doubleClickTranslation: Boolean,
     highlightedReading: Boolean,
     highlightedReadingThickness: FontWeight,
+    dialogueHighlightColor: Color,
     toolbarHidden: Boolean,
     openTranslator: (ReaderEvent.OnOpenTranslator) -> Unit,
     menuVisibility: (ReaderEvent.OnMenuVisibility) -> Unit
@@ -61,7 +62,7 @@ fun LazyItemScope.ReaderLayoutTextParagraph(
         horizontalAlignment = horizontalAlignment
     ) {
         StyledText(
-            text = paragraph.line.withDialogueHighlight(),
+            text = paragraph.line.withDialogueHighlight(dialogueHighlightColor),
             modifier = Modifier.then(
                 if (doubleClickTranslation && toolbarHidden) {
                     Modifier.noRippleClickable(

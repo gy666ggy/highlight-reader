@@ -7,8 +7,13 @@
 > Additional changes in this fork:
 > - TXT chapter detection now recognizes common chapter titles such as `第1章`, `第一章`, `Chapter 1`.
 > - EPUB table of contents supports both `toc.ncx` and EPUB3 navigation documents.
-> - TXT books can be edited while reading through the reader top bar edit action.
-> - EPUB keeps the original document parsing path, while TXT continues to use reader formatting.
+> - Reader tools are placed in the bottom bar: search, bookmarks, replacement rules, chapter editing, settings.
+> - Search shows a result list with chapter title, character position and preview.
+> - Bookmarks store the current page position with scroll offset.
+> - Replacement rules are global and support plain text rules plus `regex:` / `正则:` rules.
+> - TXT books can be edited from the current visible page to the end of the current chapter.
+> - EPUB uses a WebView original-document mode to preserve CSS, images, GIF and video resources, while TXT continues to use reader formatting.
+> - Dialogue highlight color can be changed from the bottom reader tools.
 
 > [!Caution]
 >

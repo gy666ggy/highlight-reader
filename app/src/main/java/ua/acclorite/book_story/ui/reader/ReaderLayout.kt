@@ -62,6 +62,7 @@ fun ReaderLayout(
     horizontalGestureDisableScrolling: Boolean,
     highlightedReading: Boolean,
     highlightedReadingThickness: FontWeight,
+    dialogueHighlightColor: Color,
     progress: String,
     progressBar: Boolean,
     progressBarPadding: Dp,
@@ -215,6 +216,7 @@ fun ReaderLayout(
                                     doubleClickTranslation = doubleClickTranslation,
                                     highlightedReading = highlightedReading,
                                     highlightedReadingThickness = highlightedReadingThickness,
+                                    dialogueHighlightColor = dialogueHighlightColor,
                                     toolbarHidden = toolbarHidden,
                                     openTranslator = openTranslator,
                                     menuVisibility = menuVisibility

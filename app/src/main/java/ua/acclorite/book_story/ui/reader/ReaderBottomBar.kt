@@ -72,7 +72,8 @@ fun ReaderBottomBar(
     search: () -> Unit,
     replaceRules: () -> Unit,
     toggleBookmark: () -> Unit,
-    nextBookmark: () -> Unit
+    nextBookmark: () -> Unit,
+    highlightColor: () -> Unit
 ) {
     val currentIndex by remember {
         derivedStateOf {
@@ -177,6 +178,7 @@ fun ReaderBottomBar(
             BottomAction("搜索", enabled = !lockMenu, onClick = search)
             BottomAction("替换", enabled = !lockMenu, onClick = replaceRules)
             BottomAction("编辑本章", enabled = !lockMenu, onClick = editChapter)
+            BottomAction("高亮色", enabled = !lockMenu, onClick = highlightColor)
             BottomAction("设置", enabled = !lockMenu, onClick = showSettings)
         }
     }
