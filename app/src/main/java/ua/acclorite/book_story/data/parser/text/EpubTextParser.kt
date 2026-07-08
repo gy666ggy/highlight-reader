@@ -249,16 +249,20 @@ class EpubTextParser @Inject constructor(
                 }
 
             val source = navPoint.selectFirst("content")?.attr("src")?.trim()
-                .also { src -> if (src.isNullOrBlank()) return@forEach }
-                .let { src -> normalizeEpubSource(src) }
+                .let { src ->
+                    if (src.isNullOrBlank()) return@forEach
+                    normalizeEpubSource(src)
+                }
 
             val parent = navPoint.parent()
                 ?.let { parent ->
                     if (!parent.tagName().equals("navPoint", ignoreCase = true)) return@let null
 
                     val parentSource = parent.selectFirst("content")?.attr("src")?.trim()
-                        .also { src -> if (src.isNullOrBlank()) return@forEach }
-                        .let { src -> normalizeEpubSource(src) }
+                        .let { src ->
+                            if (src.isNullOrBlank()) return@forEach
+                            normalizeEpubSource(src)
+                        }
 
                     if (parentSource == source) return@let null
                     return@let parentSource
