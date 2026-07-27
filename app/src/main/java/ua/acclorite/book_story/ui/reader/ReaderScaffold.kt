@@ -269,6 +269,7 @@ fun ReaderScaffold(
                                 is ReaderText.Text -> line.line.text
                                 is ReaderText.Separator -> "---"
                                 is ReaderText.Image -> ""
+                                is ReaderText.HtmlMedia -> ""
                             }
                         }
                         writeOriginalTxtFile(context, book.filePath, output)
