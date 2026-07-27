@@ -28,6 +28,13 @@ sealed class ReaderText {
 
     @Immutable
     data class Image(
-        val imageBitmap: ImageBitmap
+        val imageBitmap: ImageBitmap? = null,
+        val filePath: String? = null  // 缓存中的文件路径，用于 Coil/GIF 加载
+    ) : ReaderText()
+
+    @Immutable
+    data class HtmlMedia(
+        val htmlContent: String,  // HTML片段，包含 <img>/<video>/<audio> 等
+        val cacheDir: String      // 缓存目录绝对路径，资源文件解压到此处
     ) : ReaderText()
 }
