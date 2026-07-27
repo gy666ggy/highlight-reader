@@ -17,7 +17,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import ua.acclorite.book_story.domain.model.reader.ReaderText
 import ua.acclorite.book_story.ui.theme.model.HorizontalAlignment
 
@@ -40,14 +43,30 @@ fun LazyItemScope.ReaderLayoutTextImage(
             .fillMaxWidth(),
         contentAlignment = imagesAlignment.alignment
     ) {
-        Image(
-            modifier = Modifier
-                .clip(RoundedCornerShape(imagesCornersRoundness))
-                .fillMaxWidth(imagesWidth),
-            bitmap = entry.imageBitmap,
-            contentDescription = null,
-            colorFilter = imagesColorEffects,
-            contentScale = ContentScale.FillWidth
-        )
+        if (entry.filePath != null) {
+            // 用 Coil 加载（支持 GIF 动图）
+            val context = LocalContext.current
+            AsyncImage(
+                model = ImageRequest.Builder(context)
+                    .data(entry.filePath)
+                    .crossfade(true)
+                    .build(),
+                modifier = Modifier
+                    .clip(RoundedCornerShape(imagesCornersRoundness))
+                    .fillMaxWidth(imagesWidth),
+                contentDescription = null,
+                contentScale = ContentScale.FillWidth
+            )
+        } else {
+            Image(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(imagesCornersRoundness))
+                    .fillMaxWidth(imagesWidth),
+                bitmap = entry.imageBitmap!!,
+                contentDescription = null,
+                colorFilter = imagesColorEffects,
+                contentScale = ContentScale.FillWidth
+            )
+        }
     }
 }
