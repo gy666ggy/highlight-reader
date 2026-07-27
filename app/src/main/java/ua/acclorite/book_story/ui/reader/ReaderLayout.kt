@@ -187,8 +187,8 @@ fun ReaderLayout(
                     val previousEntry = text.getOrNull(index - 1)
 
                     when {
-                        !images && (entry is ReaderText.Image || previousEntry is ReaderText.Image) -> return@itemsIndexed
-                        !imagesCaptions && previousEntry is ReaderText.Image -> return@itemsIndexed
+                        !images && (entry is ReaderText.Image || entry is ReaderText.HtmlMedia || previousEntry is ReaderText.Image || previousEntry is ReaderText.HtmlMedia) -> return@itemsIndexed
+                        !imagesCaptions && (previousEntry is ReaderText.Image || previousEntry is ReaderText.HtmlMedia) -> return@itemsIndexed
                         else -> {
                             SpacedItem(
                                 index = index,
