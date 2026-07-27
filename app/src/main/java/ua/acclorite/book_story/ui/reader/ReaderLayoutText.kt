@@ -62,6 +62,13 @@ fun LazyItemScope.ReaderLayoutText(
             )
         }
 
+        is ReaderText.HtmlMedia -> {
+            ReaderLayoutTextHtmlMedia(
+                entry = entry,
+                sidePadding = sidePadding
+            )
+        }
+
         is ReaderText.Separator -> {
             ReaderLayoutTextSeparator(
                 sidePadding = sidePadding,
