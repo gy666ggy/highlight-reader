@@ -73,11 +73,14 @@ class EpubTextParser @Inject constructor(
 
                     val chapterEntries = zip.getChapterEntries(opfEntry)
                     val imageEntries = zip.entries().toList().filter {
-                        ExtensionsData.imageExtensions.any { format ->
+                        ExtensionsData.mediaExtensions.any { format ->
                             it.name.endsWith(format, ignoreCase = true)
                         }
                     }
                     val chapterTitleEntries = zip.getChapterTitleMapFromToc(tocEntry, navEntry)
+
+                    val epubCacheDir = File(rawFile.parent, "epub_media_${cachedFile.name.removeSuffix(".epub")}")
+                    if (!epubCacheDir.exists()) epubCacheDir.mkdirs()
 
                     logI(TAG, "TOC Entry: ${tocEntry?.name ?: "no toc.ncx"}")
                     logI(TAG, "NAV Entry: ${navEntry?.name ?: "no nav document"}")
@@ -88,7 +91,8 @@ class EpubTextParser @Inject constructor(
                     readerText = zip.parseEpub(
                         chapterEntries = chapterEntries,
                         imageEntries = imageEntries,
-                        chapterTitleEntries = chapterTitleEntries
+                        chapterTitleEntries = chapterTitleEntries,
+                        epubCacheDir = epubCacheDir
                     )
                 }
             }
@@ -123,7 +127,8 @@ class EpubTextParser @Inject constructor(
     private suspend fun ZipFile.parseEpub(
         chapterEntries: List<ZipEntry>,
         imageEntries: List<ZipEntry>,
-        chapterTitleEntries: Map<Source, ReaderText.Chapter>?
+        chapterTitleEntries: Map<Source, ReaderText.Chapter>?,
+        epubCacheDir: File
     ): List<ReaderText> {
 
         val readerText = mutableListOf<ReaderText>()
@@ -140,7 +145,8 @@ class EpubTextParser @Inject constructor(
                         index = index,
                         entry = entry,
                         imageEntries = imageEntries,
-                        chapterTitleMap = chapterTitleEntries
+                        chapterTitleMap = chapterTitleEntries,
+                        epubCacheDir = epubCacheDir
                     )
 
                     yield()
@@ -173,7 +179,8 @@ class EpubTextParser @Inject constructor(
         index: Int,
         entry: ZipEntry,
         imageEntries: List<ZipEntry>,
-        chapterTitleMap: Map<Source, ReaderText.Chapter>?
+        chapterTitleMap: Map<Source, ReaderText.Chapter>?,
+        epubCacheDir: File
     ) {
         // Getting all text
         val content = withContext(Dispatchers.IO) {
@@ -183,7 +190,9 @@ class EpubTextParser @Inject constructor(
             document = Jsoup.parse(content, Parser.htmlParser()),
             zipFile = zip,
             imageEntries = imageEntries,
-            includeChapter = false
+            includeChapter = false,
+            cacheDir = epubCacheDir.absolutePath,
+            currentHtmlFile = entry.name
         ).toMutableList()
 
         // Adding chapter title from TOC if found
