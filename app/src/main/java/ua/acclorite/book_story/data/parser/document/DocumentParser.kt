@@ -36,7 +36,9 @@ class DocumentParser @Inject constructor(
         document: Document,
         zipFile: ZipFile? = null,
         imageEntries: List<ZipEntry>? = null,
-        includeChapter: Boolean = true
+        includeChapter: Boolean = true,
+        cacheDir: String? = null,
+        currentHtmlFile: String? = null
     ): List<ReaderText> {
         yield()
 
@@ -60,6 +62,9 @@ class DocumentParser @Inject constructor(
                 // Remove <head>'s title
                 select("title").remove()
 
+                // Remove dangerous tags
+                select("script, style").remove()
+
                 // Markdown
                 select("hr").append("\n---\n")
                 select("b").append("**").prepend("**")
@@ -82,22 +87,44 @@ class DocumentParser @Inject constructor(
 
                 // Image (<img>)
                 select("img").forEach { element ->
-                    val src = element.attr("src")
-                        .trim()
-                        .substringAfterLast(File.separator)
-                        .lowercase()
-                        .let { src -> URLDecoder.decode(src, StandardCharsets.UTF_8.name()) }
-                        .takeIf {
-                            it.containsVisibleText() && imageEntries?.any { image ->
-                                it == image.name.substringAfterLast(File.separator).lowercase()
-                            } == true
-                        } ?: return@forEach
+                    val rawSrc = element.attr("src").trim()
+                    if (rawSrc.isBlank()) return@forEach
 
-                    val alt = element.attr("alt").trim().takeIf {
-                        it.clearMarkdown().containsVisibleText()
-                    } ?: "Image"
+                    val decodedSrc = URLDecoder.decode(rawSrc, StandardCharsets.UTF_8.name())
 
-                    element.append("\n[[$src|$alt]]\n")
+                    // 查找匹配的 ZIP 条目
+                    val matchedEntry = imageEntries?.find { image ->
+                        val imageName = image.name.substringAfterLast(File.separator).lowercase()
+                        decodedSrc.substringAfterLast("/").lowercase().contains(imageName) ||
+                        imageName.contains(decodedSrc.substringAfterLast("/").lowercase())
+                    }
+
+                    if (matchedEntry == null) return@forEach
+
+                    val isGif = matchedEntry.name.endsWith(".gif", ignoreCase = true)
+
+                    if (isGif && cacheDir != null && zipFile != null) {
+                        // GIF：提取到缓存，后续用 Coil 加载
+                        val targetFile = File(cacheDir, matchedEntry.name.substringAfterLast(File.separator))
+                        if (!targetFile.exists()) {
+                            zipFile.getInputStream(matchedEntry).use { input ->
+                                targetFile.outputStream().use { output -> input.copyTo(output) }
+                            }
+                        }
+                        element.append("\n[[GIF_FILE:${targetFile.absolutePath}|Image]]\n")
+                    } else {
+                        // 普通图片：保持原有逻辑
+                        val src = decodedSrc.substringAfterLast(File.separator).lowercase()
+                            .takeIf {
+                                it.containsVisibleText() && imageEntries.any { image ->
+                                    it == image.name.substringAfterLast(File.separator).lowercase()
+                                }
+                            } ?: return@forEach
+                        val alt = element.attr("alt").trim().takeIf {
+                            it.clearMarkdown().containsVisibleText()
+                        } ?: "Image"
+                        element.append("\n[[$src|$alt]]\n")
+                    }
                 }
 
                 // Image (<image>)
@@ -116,6 +143,30 @@ class DocumentParser @Inject constructor(
                     val alt = "Image"
 
                     element.append("\n[[$src|$alt]]\n")
+                }
+
+                // Video/Audio 媒体保留
+                val mediaElements = mutableListOf<String>()
+
+                select("video, audio").forEach { element ->
+                    val clonedElement = element.clone()
+                    // 清理安全属性
+                    clonedElement.select("script, style, link[rel=stylesheet]").remove()
+                    mediaElements.add(clonedElement.outerHtml())
+                    element.remove()  // 从文档中移除，避免 wholeText() 处理
+                }
+
+                // 如果有媒体元素，生成 HtmlMedia
+                if (mediaElements.isNotEmpty() && cacheDir != null) {
+                    // 提取资源文件到缓存
+                    if (zipFile != null && imageEntries != null) {
+                        extractMediaResources(zipFile, imageEntries, cacheDir, currentHtmlFile)
+                    }
+                    val mediaHtml = mediaElements.joinToString("\n")
+                    readerText.add(ReaderText.HtmlMedia(
+                        htmlContent = mediaHtml,
+                        cacheDir = cacheDir
+                    ))
                 }
             }.wholeText().lines().forEach { line ->
                 yield()
@@ -137,28 +188,35 @@ class DocumentParser @Inject constructor(
                             val src = trimmedLine.substringBefore("|")
                             val alt = "_${trimmedLine.substringAfter("|")}_"
 
-                            val image = try {
-                                val imageEntry = imageEntries?.find { image ->
-                                    src == image.name.substringAfterLast(File.separator).lowercase()
+                            if (src.startsWith("GIF_FILE:")) {
+                                // GIF 文件：用 Coil 加载
+                                val gifPath = src.substringAfter("GIF_FILE:")
+                                readerText.add(ReaderText.Image(imageBitmap = null, filePath = gifPath))
+                                readerText.add(ReaderText.Text(markdownParser.parse(alt)))
+                            } else {
+                                // 普通图片：原有逻辑
+                                val image = try {
+                                    val imageEntry = imageEntries?.find { image ->
+                                        src == image.name.substringAfterLast(File.separator).lowercase()
+                                    } ?: return@forEach
+                                    zipFile?.getImage(imageEntry)?.asImageBitmap()
+                                } catch (e: Exception) {
+                                    e.printStackTrace()
+                                    null
                                 } ?: return@forEach
 
-                                zipFile?.getImage(imageEntry)?.asImageBitmap()
-                            } catch (e: Exception) {
-                                e.printStackTrace()
-                                null
-                            } ?: return@forEach
-
-                            image.prepareToDraw()
-                            readerText.add( // Adding image
-                                ReaderText.Image(
-                                    imageBitmap = image
+                                image.prepareToDraw()
+                                readerText.add( // Adding image
+                                    ReaderText.Image(
+                                        imageBitmap = image
+                                    )
                                 )
-                            )
-                            readerText.add( // Adding alternative text (caption) for image
-                                ReaderText.Text(
-                                    markdownParser.parse(alt)
+                                readerText.add( // Adding alternative text (caption) for image
+                                    ReaderText.Text(
+                                        markdownParser.parse(alt)
+                                    )
                                 )
-                            )
+                            }
                         }
 
                         line == "---" || line == "***" -> readerText.add(ReaderText.Separator)
@@ -223,5 +281,28 @@ class DocumentParser @Inject constructor(
 
         val uncompressedBitmap = getBitmapFromInputStream() ?: return null
         return uncompressedBitmap
+    }
+
+    /**
+     * Extracts media resource files from ZIP to the cache directory.
+     */
+    private fun extractMediaResources(
+        zipFile: ZipFile,
+        mediaEntries: List<ZipEntry>,
+        cacheDir: String,
+        currentHtmlFile: String?
+    ) {
+        mediaEntries.forEach { entry ->
+            val targetFile = File(cacheDir, entry.name.substringAfterLast(File.separator))
+            if (!targetFile.exists()) {
+                try {
+                    zipFile.getInputStream(entry).use { input ->
+                        targetFile.outputStream().use { output -> input.copyTo(output) }
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+        }
     }
 }
