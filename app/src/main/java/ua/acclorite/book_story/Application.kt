@@ -7,13 +7,29 @@
 package ua.acclorite.book_story
 
 import android.app.Application
+import coil.ImageLoader
+import coil.ImageLoaderFactory
+import coil.decode.GifDecoder
+import coil.decode.ImageDecoderDecoder
 import dagger.hilt.android.HiltAndroidApp
 import ua.acclorite.book_story.core.crash.CrashHandler
 
 @HiltAndroidApp
-class Application : Application() {
+class Application : Application(), ImageLoaderFactory {
     override fun onCreate() {
         super.onCreate()
         Thread.setDefaultUncaughtExceptionHandler(CrashHandler(this))
+    }
+
+    override fun newImageLoader(): ImageLoader {
+        return ImageLoader.Builder(this)
+            .components {
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                    add(ImageDecoderDecoder.Factory())
+                } else {
+                    add(GifDecoder.Factory())
+                }
+            }
+            .build()
     }
 }
