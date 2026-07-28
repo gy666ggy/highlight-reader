@@ -16,14 +16,15 @@ on:
       - main
       - master
 
+permissions:
+  contents: write
+
 jobs:
   release-build:
     name: 构建签名 Release APK
     runs-on: ubuntu-latest
     if: github.event_name == 'workflow_dispatch' && inputs.build_release == 'true'
     timeout-minutes: 20
-    permissions:
-      contents: write
 
     steps:
       - name: 拉取代码
@@ -53,14 +54,20 @@ jobs:
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
 
+      - name: 获取版本号
+        id: get_version
+        run: |
+          VERSION=$(grep -oP 'versionName = "\K[^"]+' app/build.gradle.kts)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
       - name: 上传到 GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: "v1.0-latest"
-          name: "Latest Build"
-          body: "自动构建版本"
+          tag_name: v${{ steps.get_version.outputs.version }}-${{ github.run_number }}
+          name: "v${{ steps.get_version.outputs.version }} (Build #${{ github.run_number }})"
+          body: |
+            构建编号: ${{ github.run_number }}
+            提交: ${{ github.sha }}
           files: app/build/outputs/apk/release/*.apk
-          draft: true
-          prerelease: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
