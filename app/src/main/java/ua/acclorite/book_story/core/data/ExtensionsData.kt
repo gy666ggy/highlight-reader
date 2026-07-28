@@ -24,7 +24,13 @@ object ExtensionsData {
         ".png",
         ".jpg",
         ".jpeg",
-        ".gif"
+        ".gif",
+        ".webp",
+        ".bmp",
+        ".svg",
+        ".tiff",
+        ".tif",
+        ".avif"
     )
 
     val videoExtensions = persistentListOf(
