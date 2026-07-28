@@ -101,10 +101,11 @@ class DocumentParser @Inject constructor(
 
                     if (matchedEntry == null) return@forEach
 
-                    val isGif = matchedEntry.name.endsWith(".gif", ignoreCase = true)
+                    val isAnimated = matchedEntry.name.endsWith(".gif", ignoreCase = true) ||
+                            matchedEntry.name.endsWith(".webp", ignoreCase = true)
 
-                    if (isGif && cacheDir != null && zipFile != null) {
-                        // GIF：提取到缓存，后续用 Coil 加载
+                    if (isAnimated && cacheDir != null && zipFile != null) {
+                        // GIF/WebP：提取到缓存，后续用 Coil 加载（支持动画）
                         val targetFile = File(cacheDir, matchedEntry.name.substringAfterLast(File.separator))
                         if (!targetFile.exists()) {
                             zipFile.getInputStream(matchedEntry).use { input ->
