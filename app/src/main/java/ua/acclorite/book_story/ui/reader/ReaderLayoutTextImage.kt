@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyItemScope
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.ColorFilter
@@ -41,10 +42,10 @@ fun LazyItemScope.ReaderLayoutTextImage(
             )
             .padding(horizontal = sidePadding)
             .fillMaxWidth(),
-        contentAlignment = imagesAlignment.alignment
+        contentAlignment = Alignment.Center
     ) {
         if (entry.filePath != null) {
-            // 用 Coil 加载（支持 GIF 动图）
+            // 用 Coil 加载（支持 GIF/WebP 动图）
             val context = LocalContext.current
             AsyncImage(
                 model = ImageRequest.Builder(context)
