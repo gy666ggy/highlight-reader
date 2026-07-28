@@ -190,10 +190,9 @@ class DocumentParser @Inject constructor(
                             val alt = "_${trimmedLine.substringAfter("|")}_"
 
                             if (src.startsWith("GIF_FILE:")) {
-                                // GIF 文件：用 Coil 加载
+                                // GIF/WebP 文件：用 Coil 加载
                                 val gifPath = src.substringAfter("GIF_FILE:")
                                 readerText.add(ReaderText.Image(imageBitmap = null, filePath = gifPath))
-                                readerText.add(ReaderText.Text(markdownParser.parse(alt)))
                             } else {
                                 // 普通图片：原有逻辑
                                 val image = try {
