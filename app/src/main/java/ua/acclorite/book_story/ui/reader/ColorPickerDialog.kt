@@ -355,13 +355,12 @@ private fun HueSlider(
         }
     ) {
         // 彩虹色相条
+        val hueStops = (0..36).map { i ->
+            val t = i / 36f
+            t to Color.hsv(t * 360f, 1f, 1f)
+        }
         drawRect(
-            brush = Brush.verticalGradient(
-                (0..36).associate { i ->
-                    val t = i / 36f
-                    t to Color.hsv(t * 360f, 1f, 1f)
-                }
-            ),
+            brush = Brush.verticalGradient(*hueStops.toTypedArray()),
             size = size
         )
 
