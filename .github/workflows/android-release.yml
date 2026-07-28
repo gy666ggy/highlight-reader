@@ -23,7 +23,7 @@ jobs:
   release-build:
     name: 构建签名 Release APK
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' && inputs.build_release == 'true'
+    if: (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')) || (github.event_name == 'workflow_dispatch' && inputs.build_release == 'true')
     timeout-minutes: 20
 
     steps:
