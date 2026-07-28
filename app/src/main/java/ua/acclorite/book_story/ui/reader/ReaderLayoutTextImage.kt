@@ -48,8 +48,7 @@ fun LazyItemScope.ReaderLayoutTextImage(
             val context = LocalContext.current
             AsyncImage(
                 model = ImageRequest.Builder(context)
-                    .data(entry.filePath)
-                    .crossfade(true)
+                    .data(android.net.Uri.fromFile(java.io.File(entry.filePath)))
                     .build(),
                 modifier = Modifier
                     .clip(RoundedCornerShape(imagesCornersRoundness))
