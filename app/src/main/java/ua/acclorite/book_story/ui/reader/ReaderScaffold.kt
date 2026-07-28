@@ -847,35 +847,14 @@ fun ReaderScaffold(
         }
 
         if (highlightColorDialogVisible) {
-            AlertDialog(
-                onDismissRequest = { highlightColorDialogVisible = false },
-                title = { Text("对话高亮颜色") },
-                text = {
-                    Column {
-                        listOf(
-                            "蓝色" to Color(0xFF1565C0),
-                            "红色" to Color(0xFFC62828),
-                            "绿色" to Color(0xFF2E7D32),
-                            "紫色" to Color(0xFF6A1B9A),
-                            "橙色" to Color(0xFFEF6C00),
-                        ).forEach { (name, color) ->
-                            TextButton(
-                                onClick = {
-                                    dialogueHighlightColor = color.toArgb()
-                                    globalPrefs.edit().putInt("dialogue_highlight_color", dialogueHighlightColor).apply()
-                                    highlightColorDialogVisible = false
-                                }
-                            ) {
-                                Text(name, color = color)
-                            }
-                        }
-                    }
+            ColorPickerDialog(
+                currentColor = Color(dialogueHighlightColor),
+                onColorSelected = { color ->
+                    dialogueHighlightColor = color.toArgb()
+                    globalPrefs.edit().putInt("dialogue_highlight_color", dialogueHighlightColor).apply()
+                    highlightColorDialogVisible = false
                 },
-                confirmButton = {
-                    TextButton(onClick = { highlightColorDialogVisible = false }) {
-                        Text("关闭")
-                    }
-                }
+                onDismiss = { highlightColorDialogVisible = false }
             )
         }
 
