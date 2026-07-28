@@ -22,6 +22,8 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'workflow_dispatch' && inputs.build_release == 'true'
     timeout-minutes: 20
+    permissions:
+      contents: write
 
     steps:
       - name: 拉取代码
@@ -51,8 +53,14 @@ jobs:
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
 
-      - name: 上传 Release APK
-        uses: actions/upload-artifact@v4
+      - name: 上传到 GitHub Release
+        uses: softprops/action-gh-release@v2
         with:
-          name: book-story-dialogue-release-apk
-          path: app/build/outputs/apk/release/*.apk
+          tag_name: "v1.0-latest"
+          name: "Latest Build"
+          body: "自动构建版本"
+          files: app/build/outputs/apk/release/*.apk
+          draft: true
+          prerelease: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
