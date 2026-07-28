@@ -161,8 +161,9 @@ dependencies {
     implementation("androidx.appcompat:appcompat:1.7.1")
     implementation("androidx.appcompat:appcompat-resources:1.7.1")
 
-    // Coil for loading images
+    // Coil for loading images (includes GIF support)
     implementation("io.coil-kt:coil-compose:2.7.0")
+    implementation("io.coil-kt:coil-gif:2.7.0")
 
     // Open source libraries
     implementation("com.mikepenz:aboutlibraries-core:11.4.0")
