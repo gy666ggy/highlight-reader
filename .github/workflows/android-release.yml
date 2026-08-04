@@ -60,6 +60,13 @@ jobs:
           VERSION=$(grep -oP 'versionName = "\K[^"]+' app/build.gradle.kts)
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
+      - name: 上传 Artifact（国内下载快）
+        uses: actions/upload-artifact@v4
+        with:
+          name: highlight-reader-apk
+          path: app/build/outputs/apk/release/*.apk
+          retention-days: 90
+
       - name: 上传到 GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -68,6 +75,8 @@ jobs:
           body: |
             构建编号: ${{ github.run_number }}
             提交: ${{ github.sha }}
+            
+            国内用户建议从 Actions 页面下载 Artifact，速度更快。
           files: app/build/outputs/apk/release/*.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
