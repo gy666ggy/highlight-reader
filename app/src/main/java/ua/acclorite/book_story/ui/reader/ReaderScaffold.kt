@@ -186,6 +186,7 @@ fun ReaderScaffold(
     var searchDialogVisible by remember { mutableStateOf(false) }
     var searchValue by remember { mutableStateOf("") }
     var searchReplaceValue by remember { mutableStateOf("") }
+    var searchUseRegex by remember { mutableStateOf(false) }
     var searchResults by remember { mutableStateOf(emptyList<SearchResult>()) }
     var replaceDialogVisible by remember { mutableStateOf(false) }
     var replaceValue by remember { mutableStateOf(replacementRules) }
@@ -328,22 +329,52 @@ fun ReaderScaffold(
             searchResults = emptyList()
             return
         }
-        var chapter = "未命名章节"
-        searchResults = displayedText.flatMapIndexed { index, entry ->
-            when (entry) {
-                is ReaderText.Chapter -> {
-                    chapter = entry.title
-                    emptyList()
+
+        if (searchUseRegex) {
+            val regex = runCatching { Regex(query) }.getOrElse {
+                editingError = "正则表达式无效：${it.message}"
+                searchResults = emptyList()
+                return
+            }
+            var chapter = "未命名章节"
+            searchResults = displayedText.flatMapIndexed { index, entry ->
+                when (entry) {
+                    is ReaderText.Chapter -> {
+                        chapter = entry.title
+                        emptyList()
+                    }
+                    is ReaderText.Text -> {
+                        val text = entry.line.text
+                        regex.findAll(text).map { match ->
+                            SearchResult(
+                                index = index,
+                                charIndex = match.range.first,
+                                chapter = chapter,
+                                preview = text.makePreview(match.range.first, match.value.length)
+                            )
+                        }.toList()
+                    }
+                    else -> emptyList()
                 }
-                is ReaderText.Text -> entry.line.text.findAllPlain(query).map { charIndex ->
-                    SearchResult(
-                        index = index,
-                        charIndex = charIndex,
-                        chapter = chapter,
-                        preview = entry.line.text.makePreview(charIndex, query.length)
-                    )
+            }
+        } else {
+            var chapter = "未命名章节"
+            searchResults = displayedText.flatMapIndexed { index, entry ->
+                when (entry) {
+                    is ReaderText.Chapter -> {
+                        chapter = entry.title
+                        emptyList()
+                    }
+                    is ReaderText.Text -> entry.line.text.findAllPlain(query).map { charIndex ->
+                        SearchResult(
+                            index = index,
+                            charIndex = charIndex,
+                            chapter = chapter,
+                            preview = entry.line.text.makePreview(charIndex, query.length)
+                        )
+                    }
+                    else -> emptyList()
                 }
-                else -> emptyList()
             }
         }
         if (searchResults.isEmpty()) {
@@ -366,11 +397,23 @@ fun ReaderScaffold(
             return
         }
 
+        // 正则模式需要先验证
+        if (searchUseRegex) {
+            val testRegex = runCatching { Regex(query) }.getOrElse {
+                editingError = "正则表达式无效：${it.message}"
+                return
+            }
+        }
+
         var totalReplaced = 0
         val updatedText = baseText.map { entry ->
             if (entry is ReaderText.Text) {
                 val original = entry.line.text
-                val replaced = original.replace(query, replacement)
+                val replaced = if (searchUseRegex) {
+                    runCatching { Regex(query).replace(original, replacement) }.getOrDefault(original)
+                } else {
+                    original.replace(query, replacement)
+                }
                 if (replaced != original) {
                     totalReplaced++
                     ReaderText.Text(AnnotatedString(replaced))
@@ -661,6 +704,16 @@ fun ReaderScaffold(
                             label = { Text("替换为（留空则删除）") },
                             singleLine = true
                         )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("正则表达式")
+                            TextButton(onClick = { searchUseRegex = !searchUseRegex }) {
+                                Text(if (searchUseRegex) "已开启" else "已关闭")
+                            }
+                        }
                         if (searchResults.isNotEmpty()) {
                             Text(
                                 "找到 ${searchResults.size} 处结果",
