@@ -205,6 +205,10 @@ fun ReaderScaffold(
     var bookmarkDialogVisible by remember { mutableStateOf(false) }
     var highlightColorDialogVisible by remember { mutableStateOf(false) }
 
+    fun parseReplaceRules(): List<String> {
+        return replacementRules.lines().filter { it.isNotBlank() }
+    }
+
     fun loadReplaceFormFromRules() {
         replaceRuleName = ""
         replaceGroup = ""
@@ -234,10 +238,6 @@ fun ReaderScaffold(
         replaceExcludeRange = rule.excludeRange
         replaceTimeout = rule.timeout
         replaceEditingIndex = index
-    }
-
-    fun parseReplaceRules(): List<String> {
-        return replacementRules.lines().filter { it.isNotBlank() }
     }
 
     fun saveReplaceForm() {
@@ -925,6 +925,7 @@ fun ReaderScaffold(
         }
 
         if (replaceDialogVisible) {
+            val existingRules = parseReplaceRules()
             AlertDialog(
                 onDismissRequest = { replaceDialogVisible = false },
                 title = { Text("替换规则") },
@@ -936,7 +937,6 @@ fun ReaderScaffold(
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         // 已有规则列表
-                        val existingRules = parseReplaceRules()
                         if (existingRules.isNotEmpty()) {
                             item {
                                 Text(
