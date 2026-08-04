@@ -29,6 +29,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -184,6 +185,7 @@ fun ReaderScaffold(
     var editingError by remember { mutableStateOf<String?>(null) }
     var searchDialogVisible by remember { mutableStateOf(false) }
     var searchValue by remember { mutableStateOf("") }
+    var searchReplaceValue by remember { mutableStateOf("") }
     var searchResults by remember { mutableStateOf(emptyList<SearchResult>()) }
     var replaceDialogVisible by remember { mutableStateOf(false) }
     var replaceValue by remember { mutableStateOf(replacementRules) }
@@ -353,6 +355,68 @@ fun ReaderScaffold(
         coroutineScope.launch {
             listState.animateScrollToItem(result.index)
         }
+        searchDialogVisible = false
+    }
+
+    fun replaceAllFromSearch() {
+        val query = searchValue.trim()
+        val replacement = searchReplaceValue
+        if (query.isBlank()) {
+            editingError = "请先输入搜索内容"
+            return
+        }
+
+        var totalReplaced = 0
+        val updatedText = baseText.map { entry ->
+            if (entry is ReaderText.Text) {
+                val original = entry.line.text
+                val replaced = original.replace(query, replacement)
+                if (replaced != original) {
+                    totalReplaced++
+                    ReaderText.Text(AnnotatedString(replaced))
+                } else {
+                    entry
+                }
+            } else {
+                entry
+            }
+        }
+
+        if (totalReplaced == 0) {
+            editingError = "没有找到需要替换的内容：$query"
+            return
+        }
+
+        baseText = updatedText
+        searchResults = emptyList()
+
+        // 保存到原文件
+        if (book.filePath.endsWith(".txt", ignoreCase = true)) {
+            editingError = "正在替换并保存到原文件…（共替换 $totalReplaced 处）"
+            coroutineScope.launch {
+                val result = withContext(Dispatchers.IO) {
+                    runCatching {
+                        val output = updatedText.joinToString(separator = "\n") { line ->
+                            when (line) {
+                                is ReaderText.Chapter -> line.title
+                                is ReaderText.Text -> line.line.text
+                                is ReaderText.Separator -> "---"
+                                is ReaderText.Image -> ""
+                                is ReaderText.HtmlMedia -> ""
+                            }
+                        }
+                        writeOriginalTxtFile(context, book.filePath, output)
+                    }
+                }
+                editingError = result.fold(
+                    onSuccess = { "已替换 $totalReplaced 处并保存到原文件。" },
+                    onFailure = { "替换保存失败：${it.message ?: "未知错误"}" }
+                )
+            }
+        } else {
+            editingError = "已替换 $totalReplaced 处（仅 TXT 支持写回原文件）。"
+        }
+
         searchDialogVisible = false
     }
 
@@ -578,19 +642,36 @@ fun ReaderScaffold(
         if (searchDialogVisible) {
             AlertDialog(
                 onDismissRequest = { searchDialogVisible = false },
-                title = { Text("搜索内容") },
+                title = { Text("搜索与替换") },
                 text = {
-                    Column {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
                         OutlinedTextField(
                             value = searchValue,
                             onValueChange = { searchValue = it },
-                            label = { Text("输入要搜索的文字") },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("搜索内容") },
                             singleLine = true
                         )
+                        OutlinedTextField(
+                            value = searchReplaceValue,
+                            onValueChange = { searchReplaceValue = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("替换为（留空则删除）") },
+                            singleLine = true
+                        )
+                        if (searchResults.isNotEmpty()) {
+                            Text(
+                                "找到 ${searchResults.size} 处结果",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
                         LazyColumn(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .heightIn(max = 360.dp)
+                                .heightIn(max = 300.dp)
                         ) {
                             items(searchResults) { result ->
                                 TextButton(
@@ -606,8 +687,20 @@ fun ReaderScaffold(
                     }
                 },
                 confirmButton = {
-                    Button(onClick = { buildSearchResults() }) {
-                        Text("搜索")
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(onClick = { buildSearchResults() }) {
+                            Text("搜索")
+                        }
+                        Button(
+                            onClick = { replaceAllFromSearch() },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.tertiary
+                            )
+                        ) {
+                            Text("全部替换")
+                        }
                     }
                 },
                 dismissButton = {
