@@ -33,6 +33,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -190,45 +191,85 @@ fun ReaderScaffold(
     var searchResults by remember { mutableStateOf(emptyList<SearchResult>()) }
     var replaceDialogVisible by remember { mutableStateOf(false) }
     var replaceValue by remember { mutableStateOf(replacementRules) }
-    var replaceRuleName by remember { mutableStateOf("默认替换规则") }
+    var replaceRuleName by remember { mutableStateOf("") }
+    var replaceGroup by remember { mutableStateOf("") }
     var replaceSource by remember { mutableStateOf("") }
     var replaceTarget by remember { mutableStateOf("") }
     var replaceUseRegex by remember { mutableStateOf(false) }
-    var replaceScope by remember { mutableStateOf("内容") }
+    var replaceScopeTitle by remember { mutableStateOf(false) }
+    var replaceScopeContent by remember { mutableStateOf(true) }
+    var replaceRange by remember { mutableStateOf("") }
+    var replaceExcludeRange by remember { mutableStateOf("") }
+    var replaceTimeout by remember { mutableStateOf("3000") }
+    var replaceEditingIndex by remember { mutableIntStateOf(-1) } // -1=新增, >=0=编辑
     var bookmarkDialogVisible by remember { mutableStateOf(false) }
     var highlightColorDialogVisible by remember { mutableStateOf(false) }
 
     fun loadReplaceFormFromRules() {
-        // 打开对话框时清空表单，用于添加新规则
+        replaceRuleName = ""
+        replaceGroup = ""
         replaceSource = ""
         replaceTarget = ""
         replaceUseRegex = false
+        replaceScopeTitle = false
+        replaceScopeContent = true
+        replaceRange = ""
+        replaceExcludeRange = ""
+        replaceTimeout = "3000"
+        replaceEditingIndex = -1
+    }
+
+    fun loadReplaceFormForEdit(index: Int) {
+        val rules = parseReplaceRules()
+        if (index !in rules.indices) return
+        val rule = parseRuleLine(rules[index])
+        replaceRuleName = rule.name
+        replaceGroup = rule.group
+        replaceSource = rule.source
+        replaceTarget = rule.target
+        replaceUseRegex = rule.isRegex
+        replaceScopeTitle = rule.scopeTitle
+        replaceScopeContent = rule.scopeContent
+        replaceRange = rule.range
+        replaceExcludeRange = rule.excludeRange
+        replaceTimeout = rule.timeout
+        replaceEditingIndex = index
     }
 
     fun parseReplaceRules(): List<String> {
-        return replacementRules.lines().filter { it.contains("=>") && it.isNotBlank() }
+        return replacementRules.lines().filter { it.isNotBlank() }
     }
 
     fun saveReplaceForm() {
         val source = replaceSource.trim()
         if (source.isBlank()) {
-            editingError = "匹配规则不能为空"
+            editingError = "替换规则不能为空"
             return
         }
-        val rule = "${if (replaceUseRegex) "正则:" else ""}$source=>$replaceTarget"
+        val ruleJson = buildRuleJson(
+            name = replaceRuleName.trim(),
+            group = replaceGroup.trim(),
+            source = source,
+            target = replaceTarget,
+            isRegex = replaceUseRegex,
+            scopeTitle = replaceScopeTitle,
+            scopeContent = replaceScopeContent,
+            range = replaceRange.trim(),
+            excludeRange = replaceExcludeRange.trim(),
+            timeout = replaceTimeout.trim().ifBlank { "3000" }
+        )
         val existingRules = parseReplaceRules().toMutableList()
-        if (rule !in existingRules) {
-            existingRules.add(rule)
+        if (replaceEditingIndex >= 0 && replaceEditingIndex < existingRules.size) {
+            existingRules[replaceEditingIndex] = ruleJson
+        } else if (ruleJson !in existingRules) {
+            existingRules.add(ruleJson)
         }
         replacementRules = existingRules.joinToString("\n")
         replaceValue = replacementRules
         globalPrefs.edit()
             .putString("replacement_rules", replacementRules)
             .apply()
-        // 清空表单，方便继续添加下一条
-        replaceSource = ""
-        replaceTarget = ""
-        replaceUseRegex = false
+        loadReplaceFormFromRules()
     }
 
     fun deleteReplaceRule(index: Int) {
@@ -246,13 +287,9 @@ fun ReaderScaffold(
     fun clearAllReplaceRules() {
         replacementRules = ""
         replaceValue = ""
-        replaceSource = ""
-        replaceTarget = ""
-        replaceUseRegex = false
+        loadReplaceFormFromRules()
         globalPrefs.edit()
             .remove("replacement_rules")
-            .remove("replacement_rule_name")
-            .remove("replacement_rule_scope")
             .apply()
     }
 
@@ -909,11 +946,7 @@ fun ReaderScaffold(
                                 )
                             }
                             itemsIndexed(existingRules) { index, ruleLine ->
-                                val isRegex = ruleLine.startsWith("正则:") || ruleLine.startsWith("regex:")
-                                val displaySource = ruleLine.substringBefore("=>")
-                                    .removePrefix("正则:")
-                                    .removePrefix("regex:")
-                                val displayTarget = ruleLine.substringAfter("=>", "")
+                                val rule = parseRuleLine(ruleLine)
                                 Card(
                                     modifier = Modifier.fillMaxWidth(),
                                     colors = CardDefaults.cardColors(
@@ -928,21 +961,40 @@ fun ReaderScaffold(
                                     ) {
                                         Column(modifier = Modifier.weight(1f)) {
                                             Text(
-                                                "${index + 1}. ${if (isRegex) "[正则] " else ""}$displaySource",
+                                                "${index + 1}. ${rule.name.ifBlank { "未命名" }}${if (rule.isRegex) " [正则]" else ""}",
                                                 style = MaterialTheme.typography.bodySmall,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
                                             Text(
-                                                "→ $displayTarget",
+                                                "${rule.source} → ${rule.target}",
                                                 style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurface
+                                                color = MaterialTheme.colorScheme.onSurface,
+                                                maxLines = 2
                                             )
+                                            val scopes = mutableListOf<String>()
+                                            if (rule.scopeTitle) scopes.add("标题")
+                                            if (rule.scopeContent) scopes.add("正文")
+                                            if (scopes.isNotEmpty()) {
+                                                Text(
+                                                    "作用: ${scopes.joinToString(", ")}",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.outline
+                                                )
+                                            }
                                         }
-                                        TextButton(
-                                            onClick = { deleteReplaceRule(index) },
-                                            contentPadding = PaddingValues(horizontal = 8.dp)
-                                        ) {
-                                            Text("删除", color = MaterialTheme.colorScheme.error)
+                                        Column {
+                                            TextButton(
+                                                onClick = { loadReplaceFormForEdit(index) },
+                                                contentPadding = PaddingValues(horizontal = 8.dp)
+                                            ) {
+                                                Text("编辑")
+                                            }
+                                            TextButton(
+                                                onClick = { deleteReplaceRule(index) },
+                                                contentPadding = PaddingValues(horizontal = 8.dp)
+                                            ) {
+                                                Text("删除", color = MaterialTheme.colorScheme.error)
+                                            }
                                         }
                                     }
                                 }
@@ -954,12 +1006,30 @@ fun ReaderScaffold(
                             }
                         }
 
-                        // 新增规则表单
+                        // 规则编辑表单
                         item {
                             Text(
-                                "添加新规则",
+                                if (replaceEditingIndex >= 0) "编辑规则" else "添加新规则",
                                 style = MaterialTheme.typography.labelLarge,
                                 color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        item {
+                            OutlinedTextField(
+                                value = replaceRuleName,
+                                onValueChange = { replaceRuleName = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                label = { Text("替换规则名称") }
+                            )
+                        }
+                        item {
+                            OutlinedTextField(
+                                value = replaceGroup,
+                                onValueChange = { replaceGroup = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                label = { Text("分组") }
                             )
                         }
                         item {
@@ -969,19 +1039,7 @@ fun ReaderScaffold(
                                 modifier = Modifier.fillMaxWidth(),
                                 minLines = 2,
                                 maxLines = 4,
-                                label = { Text("匹配内容") },
-                                placeholder = { Text("输入要替换的文字") }
-                            )
-                        }
-                        item {
-                            OutlinedTextField(
-                                value = replaceTarget,
-                                onValueChange = { replaceTarget = it },
-                                modifier = Modifier.fillMaxWidth(),
-                                minLines = 2,
-                                maxLines = 4,
-                                label = { Text("替换为") },
-                                placeholder = { Text("输入替换后的文字") }
+                                label = { Text("替换规则") }
                             )
                         }
                         item {
@@ -990,11 +1048,78 @@ fun ReaderScaffold(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text("正则表达式")
+                                Text("使用正则表达式")
                                 TextButton(onClick = { replaceUseRegex = !replaceUseRegex }) {
                                     Text(if (replaceUseRegex) "已开启" else "已关闭")
                                 }
                             }
+                        }
+                        item {
+                            OutlinedTextField(
+                                value = replaceTarget,
+                                onValueChange = { replaceTarget = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                minLines = 2,
+                                maxLines = 4,
+                                label = { Text("替换为") }
+                            )
+                        }
+                        item {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Checkbox(
+                                        checked = replaceScopeTitle,
+                                        onCheckedChange = { replaceScopeTitle = it }
+                                    )
+                                    Text("作用于标题")
+                                }
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Checkbox(
+                                        checked = replaceScopeContent,
+                                        onCheckedChange = { replaceScopeContent = it }
+                                    )
+                                    Text("作用于正文")
+                                }
+                            }
+                        }
+                        item {
+                            OutlinedTextField(
+                                value = replaceRange,
+                                onValueChange = { replaceRange = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                label = { Text("替换范围，选填书名") },
+                                placeholder = { Text("全部书籍") }
+                            )
+                        }
+                        item {
+                            OutlinedTextField(
+                                value = replaceExcludeRange,
+                                onValueChange = { replaceExcludeRange = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                label = { Text("排除范围，选填书名") },
+                                placeholder = { Text("无") }
+                            )
+                        }
+                        item {
+                            OutlinedTextField(
+                                value = replaceTimeout,
+                                onValueChange = { replaceTimeout = it.filter { c -> c.isDigit() } },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                label = { Text("超时毫秒数") }
+                            )
                         }
                     }
                 },
@@ -1002,15 +1127,17 @@ fun ReaderScaffold(
                     Button(
                         onClick = { saveReplaceForm() }
                     ) {
-                        Text("添加规则")
+                        Text(if (replaceEditingIndex >= 0) "保存" else "添加")
                     }
                 },
                 dismissButton = {
                     Row {
-                        TextButton(
-                            onClick = { clearAllReplaceRules() }
-                        ) {
-                            Text("清空全部", color = MaterialTheme.colorScheme.error)
+                        if (existingRules.isNotEmpty()) {
+                            TextButton(
+                                onClick = { clearAllReplaceRules() }
+                            ) {
+                                Text("清空", color = MaterialTheme.colorScheme.error)
+                            }
                         }
                         TextButton(
                             onClick = { replaceDialogVisible = false }
@@ -1051,35 +1178,149 @@ fun ReaderScaffold(
 
 private fun List<ReaderText>.applyReplacementRules(rulesText: String): List<ReaderText> {
     val rules = rulesText.lines().mapNotNull { line ->
-        val separator = line.indexOf("=>")
-        if (separator <= 0) return@mapNotNull null
-        val source = line.substring(0, separator)
-        val target = line.substring(separator + 2)
-        if (source.isBlank()) null else ReplacementRule(source, target)
+        if (line.isBlank()) return@mapNotNull null
+        parseRuleLine(line).takeIf { it.source.isNotBlank() }
     }
     if (rules.isEmpty()) return this
 
     return map { entry ->
-        if (entry !is ReaderText.Text) return@map entry
-        val replaced = rules.fold(entry.line.text) { current, rule ->
-            rule.apply(current)
+        when (entry) {
+            is ReaderText.Text -> {
+                if (rules.none { it.scopeContent }) return@map entry
+                val replaced = rules.filter { it.scopeContent }.fold(entry.line.text) { current, rule ->
+                    rule.apply(current)
+                }
+                if (replaced == entry.line.text) entry else ReaderText.Text(AnnotatedString(replaced))
+            }
+            is ReaderText.Chapter -> {
+                if (rules.none { it.scopeTitle }) return@map entry
+                val replaced = rules.filter { it.scopeTitle }.fold(entry.title) { current, rule ->
+                    rule.apply(current)
+                }
+                if (replaced == entry.title) entry else entry.copy(title = replaced)
+            }
+            else -> entry
         }
-        if (replaced == entry.line.text) entry else ReaderText.Text(AnnotatedString(replaced))
     }
 }
 
 private data class ReplacementRule(
+    val name: String = "",
+    val group: String = "",
     val source: String,
-    val target: String
+    val target: String,
+    val isRegex: Boolean = false,
+    val scopeTitle: Boolean = false,
+    val scopeContent: Boolean = true,
+    val range: String = "",
+    val excludeRange: String = "",
+    val timeout: String = "3000"
 ) {
     fun apply(text: String): String {
-        return if (source.startsWith("正则:") || source.startsWith("regex:")) {
-            val pattern = source.substringAfter(":")
-            runCatching { Regex(pattern).replace(text, target) }.getOrDefault(text)
+        return if (isRegex) {
+            runCatching { Regex(source).replace(text, target) }.getOrDefault(text)
         } else {
             text.replace(source, target)
         }
     }
+}
+
+/**
+ * 解析单行规则，兼容旧格式 (source=>target / 正则:source=>target) 和 JSON 格式
+ */
+private fun parseRuleLine(line: String): ReplacementRule {
+    val trimmed = line.trim()
+    // 尝试 JSON 格式
+    if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+        return parseRuleJson(trimmed)
+    }
+    // 旧格式兼容: source=>target 或 正则:source=>target
+    val separator = trimmed.indexOf("=>")
+    if (separator <= 0) return ReplacementRule(source = "", target = "")
+    val rawSource = trimmed.substring(0, separator)
+    val target = trimmed.substring(separator + 2)
+    val isRegex = rawSource.startsWith("正则:") || rawSource.startsWith("regex:")
+    val source = rawSource.removePrefix("正则:").removePrefix("regex:")
+    return ReplacementRule(
+        source = source,
+        target = target,
+        isRegex = isRegex
+    )
+}
+
+/**
+ * 将规则序列化为 JSON 行
+ */
+private fun buildRuleJson(
+    name: String,
+    group: String,
+    source: String,
+    target: String,
+    isRegex: Boolean,
+    scopeTitle: Boolean,
+    scopeContent: Boolean,
+    range: String,
+    excludeRange: String,
+    timeout: String
+): String {
+    // 简单 JSON 构建，避免转义问题用 || 分隔字段
+    return buildString {
+        append("{")
+        append("\"name\":\"").append(escapeJson(name)).append("\"")
+        append(",\"group\":\"").append(escapeJson(group)).append("\"")
+        append(",\"source\":\"").append(escapeJson(source)).append("\"")
+        append(",\"target\":\"").append(escapeJson(target)).append("\"")
+        append(",\"isRegex\":").append(isRegex)
+        append(",\"scopeTitle\":").append(scopeTitle)
+        append(",\"scopeContent\":").append(scopeContent)
+        append(",\"range\":\"").append(escapeJson(range)).append("\"")
+        append(",\"excludeRange\":\"").append(escapeJson(excludeRange)).append("\"")
+        append(",\"timeout\":\"").append(escapeJson(timeout)).append("\"")
+        append("}")
+    }
+}
+
+private fun parseRuleJson(json: String): ReplacementRule {
+    return try {
+        val name = regexExtract(json, "\"name\"\\s*:\\s*\"(.*?)\"".toRegex())
+        val group = regexExtract(json, "\"group\"\\s*:\\s*\"(.*?)\"".toRegex())
+        val source = regexExtract(json, "\"source\"\\s*:\\s*\"(.*?)\"".toRegex())
+        val target = regexExtract(json, "\"target\"\\s*:\\s*\"(.*?)\"".toRegex())
+        val isRegex = json.contains("\"isRegex\":true")
+        val scopeTitle = json.contains("\"scopeTitle\":true")
+        val scopeContent = !json.contains("\"scopeContent\":false")
+        val range = regexExtract(json, "\"range\"\\s*:\\s*\"(.*?)\"".toRegex())
+        val excludeRange = regexExtract(json, "\"excludeRange\"\\s*:\\s*\"(.*?)\"".toRegex())
+        val timeout = regexExtract(json, "\"timeout\"\\s*:\\s*\"(.*?)\"".toRegex()).ifBlank { "3000" }
+        ReplacementRule(
+            name = name, group = group, source = source, target = target,
+            isRegex = isRegex, scopeTitle = scopeTitle, scopeContent = scopeContent,
+            range = range, excludeRange = excludeRange, timeout = timeout
+        )
+    } catch (e: Exception) {
+        ReplacementRule(source = "", target = "")
+    }
+}
+
+private fun regexExtract(text: String, pattern: Regex): String {
+    val match = pattern.find(text) ?: return ""
+    return match.groupValues.getOrNull(1)?.let { unescapeJson(it) } ?: ""
+}
+
+private fun escapeJson(s: String): String {
+    return s.replace("\\", "\\\\")
+        .replace("\"", "\\\"")
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+        .replace("\t", "\\t")
+}
+
+private fun unescapeJson(s: String): String {
+    return s.replace("\\\"", "\"")
+        .replace("\\n", "\n")
+        .replace("\\r", "\r")
+        .replace("\\t", "\t")
+        .replace("\\\\", "\\")
 }
 
 private data class SearchResult(
