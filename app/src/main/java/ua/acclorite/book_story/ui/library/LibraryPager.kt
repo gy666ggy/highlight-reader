@@ -116,7 +116,7 @@ fun LibraryPager(
     HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { index ->
         val category = remember(categorizedBooks, index) {
             derivedStateOf {
-                categorizedBooks.value[index]
+                categorizedBooks.value.getOrElse(index) { emptyList() }
             }
         }
 
