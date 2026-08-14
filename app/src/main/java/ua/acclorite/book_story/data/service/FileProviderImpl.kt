@@ -7,17 +7,24 @@
 package ua.acclorite.book_story.data.service
 
 import android.app.Application
+import android.util.LruCache
 import ua.acclorite.book_story.data.model.file.CachedFile
 import ua.acclorite.book_story.data.model.file.CachedFileCompat
 import ua.acclorite.book_story.domain.model.library.Book
 import ua.acclorite.book_story.domain.service.FileProvider
 import javax.inject.Inject
+import javax.inject.Singleton
 
+@Singleton
 class FileProviderImpl @Inject constructor(
     private val application: Application
 ) : FileProvider {
 
+    private val fileCache = LruCache<String, CachedFile>(20)
+
     override fun getFileFromBook(book: Book): Result<CachedFile> = runCatching {
+        fileCache[book.filePath]?.let { return@runCatching it }
+
         application.contentResolver.persistedUriPermissions.forEach { storage ->
             val storageFile = CachedFileCompat.fromUri(
                 application,
@@ -29,6 +36,7 @@ class FileProviderImpl @Inject constructor(
 
             storageFile.walk().forEach { file ->
                 if (book.filePath.equals(file.path, ignoreCase = true)) {
+                    fileCache.put(book.filePath, file)
                     return@runCatching file
                 }
             }

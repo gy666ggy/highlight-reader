@@ -8,6 +8,7 @@ package ua.acclorite.book_story.domain.use_case.book
 
 import ua.acclorite.book_story.core.log.logE
 import ua.acclorite.book_story.core.log.logI
+import ua.acclorite.book_story.domain.model.library.Book
 import ua.acclorite.book_story.domain.model.reader.ReaderText
 import ua.acclorite.book_story.domain.repository.BookRepository
 import javax.inject.Inject
@@ -34,6 +35,31 @@ class GetTextUseCase @Inject constructor(
         }.fold(
             onSuccess = {
                 logI(TAG, "Successfully loaded text from [$bookId] with markdown.")
+                return it
+            },
+            onFailure = {
+                logE(TAG, "Could not load text with exception: ${it.message}")
+                return emptyList()
+            }
+        )
+    }
+
+    suspend operator fun invoke(book: Book): List<ReaderText> {
+        logI(TAG, "Getting text for book: [${book.id}].")
+        if (book.id == -1) return emptyList()
+
+        bookRepository.getTextForBook(book).mapCatching { readerText ->
+            if (
+                readerText.filterIsInstance<ReaderText.Text>().isEmpty() ||
+                readerText.filterIsInstance<ReaderText.Chapter>().isEmpty()
+            ) {
+                throw Exception("ReaderText is empty.")
+            }
+
+            readerText
+        }.fold(
+            onSuccess = {
+                logI(TAG, "Successfully loaded text from [${book.id}] with markdown.")
                 return it
             },
             onFailure = {

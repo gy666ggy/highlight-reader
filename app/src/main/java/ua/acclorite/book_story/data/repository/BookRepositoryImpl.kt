@@ -61,6 +61,16 @@ class BookRepositoryImpl @Inject constructor(
         }
     }
 
+    override suspend fun getTextForBook(book: Book): Result<List<ReaderText>> {
+        textCache[book.id]?.let { return Result.success(it) }
+        return withContext(Dispatchers.IO) {
+            runCatching { fileProvider.getFileFromBook(book).getOrThrow() }
+                .mapCatching { textParser.parse(it) }
+        }.also { result ->
+            result.onSuccess { textCache.put(book.id, it) }
+        }
+    }
+
     override suspend fun getFileFromBook(bookId: Int): Result<File> {
         return withContext(Dispatchers.IO) {
             getBook(bookId)

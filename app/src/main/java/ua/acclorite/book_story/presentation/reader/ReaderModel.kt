@@ -401,7 +401,53 @@ class ReaderModel @Inject constructor(
                 )
             }
 
-            onEvent(ReaderEvent.OnLoadText)
+            // Load text directly with the book object to skip redundant DB query
+            withContext(Dispatchers.Default) {
+                val text = getTextUseCase(book)
+                ensureActive()
+
+                if (text.isEmpty()) {
+                    _state.update {
+                        it.copy(
+                            isLoading = false,
+                            errorMessage = UIText.StringResource(
+                                resId = R.string.error_could_not_get_text
+                            )
+                        )
+                    }
+                    _effects.emit(ReaderEffect.OnSystemBarsVisibility(show = true))
+                    return@withContext
+                }
+
+                _effects.emit(ReaderEffect.OnSystemBarsVisibility(show = null))
+
+                val lastOpened = getHistoryForBookUseCase(book.id)?.time
+                val (currentChapter, currentChapterProgress) = getChapterProgressUseCase(
+                    book.scrollIndex,
+                    text
+                )
+                _state.update {
+                    it.copy(
+                        showMenu = false,
+                        isLoading = false,
+                        errorMessage = null,
+                        book = it.book.copy(
+                            lastOpened = lastOpened
+                        ),
+                        text = text,
+                        currentChapter = currentChapter,
+                        currentChapterProgress = currentChapterProgress
+                    )
+                }
+                ensureActive()
+
+                updateBookUseCase(_state.value.book)
+
+                LibraryScreen.refreshListChannel.trySend(0)
+                HistoryScreen.refreshListChannel.trySend(0)
+
+                onEvent(ReaderEvent.OnRestoreScroll)
+            }
         }
     }
 

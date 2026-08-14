@@ -24,6 +24,10 @@ interface BookRepository {
         bookId: Int
     ): Result<List<ReaderText>>
 
+    suspend fun getTextForBook(
+        book: Book
+    ): Result<List<ReaderText>>
+
     suspend fun getFileFromBook(
         bookId: Int
     ): Result<File>
