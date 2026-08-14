@@ -6,6 +6,7 @@
 
 package ua.acclorite.book_story.data.repository
 
+import android.util.LruCache
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import ua.acclorite.book_story.core.CoverImage
@@ -32,6 +33,8 @@ class BookRepositoryImpl @Inject constructor(
     private val fileProvider: FileProvider
 ) : BookRepository {
 
+    private val textCache = LruCache<Int, List<ReaderText>>(5)
+
     override suspend fun searchBooks(query: String): Result<List<Book>> = runCatching {
         withContext(Dispatchers.IO) {
             database.bookDao.searchBooks(query).map { bookMapper.toBook(it) }
@@ -48,10 +51,13 @@ class BookRepositoryImpl @Inject constructor(
     }
 
     override suspend fun getText(bookId: Int): Result<List<ReaderText>> {
+        textCache[bookId]?.let { return Result.success(it) }
         return withContext(Dispatchers.IO) {
             getBook(bookId)
                 .mapCatching { fileProvider.getFileFromBook(it).getOrThrow() }
                 .mapCatching { textParser.parse(it) }
+        }.also { result ->
+            result.onSuccess { textCache.put(bookId, it) }
         }
     }
 
@@ -83,7 +89,7 @@ class BookRepositoryImpl @Inject constructor(
                 if (it == 0) throw Exception("Could not delete book in database.")
             }
         }
-    }
+    }.also { textCache.remove(book.id) }
 
     override suspend fun getDefaultCover(book: Book): Result<CoverImage?> = runCatching {
         return withContext(Dispatchers.IO) {

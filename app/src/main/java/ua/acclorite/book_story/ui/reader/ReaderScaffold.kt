@@ -684,10 +684,6 @@ fun ReaderScaffold(
             horizontalLimiterRulerColor = fontColor
         )
 
-        if (isLoading) {
-            ReaderLoadingPlaceholder()
-        }
-
         if (editingStartIndex >= 0) {
             AlertDialog(
                 onDismissRequest = { editingStartIndex = -1 },

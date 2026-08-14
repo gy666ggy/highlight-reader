@@ -88,13 +88,21 @@ class ReaderModel @Inject constructor(
                         _effects.emit(ReaderEffect.OnSystemBarsVisibility(show = null))
 
                         val lastOpened = getHistoryForBookUseCase(_state.value.book.id)?.time
+                        val (currentChapter, currentChapterProgress) = getChapterProgressUseCase(
+                            _state.value.book.scrollIndex,
+                            text
+                        )
                         _state.update {
                             it.copy(
                                 showMenu = false,
+                                isLoading = false,
+                                errorMessage = null,
                                 book = it.book.copy(
                                     lastOpened = lastOpened
                                 ),
-                                text = text
+                                text = text,
+                                currentChapter = currentChapter,
+                                currentChapterProgress = currentChapterProgress
                             )
                         }
                         ensureActive()
@@ -123,9 +131,7 @@ class ReaderModel @Inject constructor(
                         )
                         it.copy(
                             currentChapter = currentChapter,
-                            currentChapterProgress = currentChapterProgress,
-                            isLoading = false,
-                            errorMessage = null
+                            currentChapterProgress = currentChapterProgress
                         )
                     }
                 }
