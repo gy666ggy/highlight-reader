@@ -29,7 +29,7 @@ class TextDiskCache @Inject constructor(
 ) {
     companion object {
         private const val CACHE_DIR_NAME = "text_cache"
-        private const val CACHE_VERSION = 1
+        private const val CACHE_VERSION = 2
         private const val TYPE_CHAPTER = 0
         private const val TYPE_TEXT = 1
         private const val TYPE_SEPARATOR = 2
