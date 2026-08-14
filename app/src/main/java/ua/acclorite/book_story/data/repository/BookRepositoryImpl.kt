@@ -88,8 +88,9 @@ class BookRepositoryImpl @Inject constructor(
             database.bookDao.deleteBook(bookMapper.toBookEntity(book)).also {
                 if (it == 0) throw Exception("Could not delete book in database.")
             }
+            textCache.remove(book.id)
         }
-    }.also { textCache.remove(book.id) }
+    }
 
     override suspend fun getDefaultCover(book: Book): Result<CoverImage?> = runCatching {
         return withContext(Dispatchers.IO) {
