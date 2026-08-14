@@ -101,25 +101,25 @@ class DocumentParser @Inject constructor(
 
                     if (matchedEntry == null) return@forEach
 
-                    val isAnimated = matchedEntry.name.endsWith(".gif", ignoreCase = true) ||
-                            matchedEntry.name.endsWith(".webp", ignoreCase = true)
-
-                    if (isAnimated && cacheDir != null && zipFile != null) {
-                        // GIF/WebP：提取到缓存，后续用 Coil 加载（支持动画）
+                    // Extract ALL images to cache directory for file-based loading
+                    if (cacheDir != null && zipFile != null) {
                         val targetFile = File(cacheDir, matchedEntry.name.substringAfterLast(File.separator))
                         if (!targetFile.exists()) {
-                            zipFile.getInputStream(matchedEntry).use { input ->
-                                targetFile.outputStream().use { output -> input.copyTo(output) }
+                            try {
+                                zipFile.getInputStream(matchedEntry).use { input ->
+                                    targetFile.outputStream().use { output -> input.copyTo(output) }
+                                }
+                            } catch (e: Exception) {
+                                e.printStackTrace()
                             }
                         }
-                        element.append("\n[[GIF_FILE:${targetFile.absolutePath}|Image]]\n")
+                        element.append("\n[[IMG_FILE:${targetFile.absolutePath}|Image]]\n")
                     } else {
-                        // 普通图片：保持原有逻辑
                         val src = decodedSrc.substringAfterLast(File.separator).lowercase()
                             .takeIf {
-                                it.containsVisibleText() && imageEntries.any { image ->
+                                it.containsVisibleText() && imageEntries?.any { image ->
                                     it == image.name.substringAfterLast(File.separator).lowercase()
-                                }
+                                } == true
                             } ?: return@forEach
                         val alt = element.attr("alt").trim().takeIf {
                             it.clearMarkdown().containsVisibleText()
@@ -128,22 +128,32 @@ class DocumentParser @Inject constructor(
                     }
                 }
 
-                // Image (<image>)
+                // Image (<image> - SVG)
                 select("image").forEach { element ->
-                    val src = element.attr("xlink:href")
-                        .trim()
-                        .substringAfterLast(File.separator)
-                        .lowercase()
-                        .let { src -> URLDecoder.decode(src, StandardCharsets.UTF_8.name()) }
-                        .takeIf {
-                            it.containsVisibleText() && imageEntries?.any { image ->
-                                it == image.name.substringAfterLast(File.separator).lowercase()
-                            } == true
-                        } ?: return@forEach
+                    val rawSrc = element.attr("xlink:href").trim()
+                    if (rawSrc.isBlank()) return@forEach
 
-                    val alt = "Image"
+                    val decodedSrc = URLDecoder.decode(rawSrc, StandardCharsets.UTF_8.name())
 
-                    element.append("\n[[$src|$alt]]\n")
+                    val matchedEntry = imageEntries?.find { image ->
+                        val imageName = image.name.substringAfterLast(File.separator).lowercase()
+                        decodedSrc.substringAfterLast("/").lowercase().contains(imageName) ||
+                        imageName.contains(decodedSrc.substringAfterLast("/").lowercase())
+                    }
+
+                    if (matchedEntry != null && cacheDir != null && zipFile != null) {
+                        val targetFile = File(cacheDir, matchedEntry.name.substringAfterLast(File.separator))
+                        if (!targetFile.exists()) {
+                            try {
+                                zipFile.getInputStream(matchedEntry).use { input ->
+                                    targetFile.outputStream().use { output -> input.copyTo(output) }
+                                }
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                            }
+                        }
+                        element.append("\n[[IMG_FILE:${targetFile.absolutePath}|Image]]\n")
+                    }
                 }
 
                 // Video/Audio 媒体保留
@@ -189,12 +199,15 @@ class DocumentParser @Inject constructor(
                             val src = trimmedLine.substringBefore("|")
                             val alt = "_${trimmedLine.substringAfter("|")}_"
 
-                            if (src.startsWith("GIF_FILE:")) {
-                                // GIF/WebP 文件：用 Coil 加载
-                                val gifPath = src.substringAfter("GIF_FILE:")
-                                readerText.add(ReaderText.Image(imageBitmap = null, filePath = gifPath))
+                            if (src.startsWith("IMG_FILE:")) {
+                                // File-based image: load via Coil (supports all formats including GIF/WebP)
+                                val imgPath = src.substringAfter("IMG_FILE:")
+                                readerText.add(ReaderText.Image(imageBitmap = null, filePath = imgPath))
+                                readerText.add(ReaderText.Text(
+                                    markdownParser.parse(alt)
+                                ))
                             } else {
-                                // 普通图片：原有逻辑
+                                // Fallback: legacy bitmap loading
                                 val image = try {
                                     val imageEntry = imageEntries?.find { image ->
                                         src == image.name.substringAfterLast(File.separator).lowercase()

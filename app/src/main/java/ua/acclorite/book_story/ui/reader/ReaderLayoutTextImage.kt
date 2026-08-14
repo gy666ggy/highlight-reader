@@ -34,6 +34,11 @@ fun LazyItemScope.ReaderLayoutTextImage(
     imagesWidth: Float,
     imagesColorEffects: ColorFilter?
 ) {
+    // If both filePath and imageBitmap are null, render nothing
+    if (entry.filePath == null && entry.imageBitmap == null) {
+        return
+    }
+
     Box(
         modifier = Modifier
             .animateItem(
@@ -45,7 +50,7 @@ fun LazyItemScope.ReaderLayoutTextImage(
         contentAlignment = Alignment.Center
     ) {
         if (entry.filePath != null) {
-            // 用 Coil 加载（支持 GIF/WebP 动图）
+            // Use Coil for file-based images (supports GIF/WebP animation)
             val context = LocalContext.current
             AsyncImage(
                 model = ImageRequest.Builder(context)
@@ -58,15 +63,18 @@ fun LazyItemScope.ReaderLayoutTextImage(
                 contentScale = ContentScale.FillWidth
             )
         } else {
-            Image(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(imagesCornersRoundness))
-                    .fillMaxWidth(imagesWidth),
-                bitmap = entry.imageBitmap!!,
-                contentDescription = null,
-                colorFilter = imagesColorEffects,
-                contentScale = ContentScale.FillWidth
-            )
+            // Use in-memory bitmap for regular images
+            entry.imageBitmap?.let { bitmap ->
+                Image(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(imagesCornersRoundness))
+                        .fillMaxWidth(imagesWidth),
+                    bitmap = bitmap,
+                    contentDescription = null,
+                    colorFilter = imagesColorEffects,
+                    contentScale = ContentScale.FillWidth
+                )
+            }
         }
     }
 }

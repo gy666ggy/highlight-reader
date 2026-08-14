@@ -47,7 +47,8 @@ class TextDiskCache @Inject constructor(
         withContext(Dispatchers.IO) {
             try {
                 val file = cacheFile(bookId)
-                DataOutputStream(BufferedOutputStream(FileOutputStream(file))).use { out ->
+                val tempFile = File(cacheDir, "$bookId.tmp")
+                DataOutputStream(BufferedOutputStream(FileOutputStream(tempFile))).use { out ->
                     out.writeByte(CACHE_VERSION)
                     out.writeInt(text.size)
                     text.forEach { item ->
@@ -76,6 +77,9 @@ class TextDiskCache @Inject constructor(
                         }
                     }
                 }
+                // Atomic rename to avoid corrupted cache from concurrent writes
+                if (file.exists()) file.delete()
+                tempFile.renameTo(file)
             } catch (e: Exception) {
                 // Silently fail - cache is best-effort
             }
