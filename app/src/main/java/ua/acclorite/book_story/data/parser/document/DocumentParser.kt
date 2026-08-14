@@ -203,9 +203,6 @@ class DocumentParser @Inject constructor(
                                 // File-based image: load via Coil (supports all formats including GIF/WebP)
                                 val imgPath = src.substringAfter("IMG_FILE:")
                                 readerText.add(ReaderText.Image(imageBitmap = null, filePath = imgPath))
-                                readerText.add(ReaderText.Text(
-                                    markdownParser.parse(alt)
-                                ))
                             } else {
                                 // Fallback: legacy bitmap loading
                                 val image = try {
