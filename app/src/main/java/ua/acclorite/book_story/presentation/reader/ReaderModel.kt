@@ -395,59 +395,58 @@ class ReaderModel @Inject constructor(
 
             clear()
 
+            // Show reader UI immediately - don't wait for text
             _state.update {
                 ReaderState(
-                    book = book
+                    book = book,
+                    isLoading = false,
+                    errorMessage = null
                 )
             }
 
-            // Load text directly with the book object to skip redundant DB query
-            withContext(Dispatchers.Default) {
-                val text = getTextUseCase(book)
-                ensureActive()
+            _effects.emit(ReaderEffect.OnSystemBarsVisibility(show = null))
 
-                if (text.isEmpty()) {
-                    _state.update {
-                        it.copy(
-                            isLoading = false,
-                            errorMessage = UIText.StringResource(
-                                resId = R.string.error_could_not_get_text
-                            )
-                        )
-                    }
-                    _effects.emit(ReaderEffect.OnSystemBarsVisibility(show = true))
-                    return@withContext
-                }
+            // Load text in background
+            val text = getTextUseCase(book)
+            ensureActive()
 
-                _effects.emit(ReaderEffect.OnSystemBarsVisibility(show = null))
-
-                val lastOpened = getHistoryForBookUseCase(book.id)?.time
-                val (currentChapter, currentChapterProgress) = getChapterProgressUseCase(
-                    book.scrollIndex,
-                    text
-                )
+            if (text.isEmpty()) {
                 _state.update {
                     it.copy(
-                        showMenu = false,
                         isLoading = false,
-                        errorMessage = null,
-                        book = it.book.copy(
-                            lastOpened = lastOpened
-                        ),
-                        text = text,
-                        currentChapter = currentChapter,
-                        currentChapterProgress = currentChapterProgress
+                        errorMessage = UIText.StringResource(
+                            resId = R.string.error_could_not_get_text
+                        )
                     )
                 }
-                ensureActive()
-
-                updateBookUseCase(_state.value.book)
-
-                LibraryScreen.refreshListChannel.trySend(0)
-                HistoryScreen.refreshListChannel.trySend(0)
-
-                onEvent(ReaderEvent.OnRestoreScroll)
+                _effects.emit(ReaderEffect.OnSystemBarsVisibility(show = true))
+                return@launch
             }
+
+            val lastOpened = getHistoryForBookUseCase(book.id)?.time
+            val (currentChapter, currentChapterProgress) = getChapterProgressUseCase(
+                book.scrollIndex,
+                text
+            )
+            _state.update {
+                it.copy(
+                    showMenu = false,
+                    book = it.book.copy(
+                        lastOpened = lastOpened
+                    ),
+                    text = text,
+                    currentChapter = currentChapter,
+                    currentChapterProgress = currentChapterProgress
+                )
+            }
+            ensureActive()
+
+            updateBookUseCase(_state.value.book)
+
+            LibraryScreen.refreshListChannel.trySend(0)
+            HistoryScreen.refreshListChannel.trySend(0)
+
+            onEvent(ReaderEvent.OnRestoreScroll)
         }
     }
 

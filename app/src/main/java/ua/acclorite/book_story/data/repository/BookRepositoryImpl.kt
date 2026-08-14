@@ -10,6 +10,8 @@ import android.util.LruCache
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import ua.acclorite.book_story.core.CoverImage
+import ua.acclorite.book_story.core.log.logI
+import ua.acclorite.book_story.data.local.cache.TextDiskCache
 import ua.acclorite.book_story.data.local.room.BookDatabase
 import ua.acclorite.book_story.data.mapper.book.BookMapper
 import ua.acclorite.book_story.data.mapper.file.FileMapper
@@ -23,6 +25,8 @@ import ua.acclorite.book_story.domain.service.FileProvider
 import javax.inject.Inject
 import javax.inject.Singleton
 
+private const val TAG = "BookRepository"
+
 @Singleton
 class BookRepositoryImpl @Inject constructor(
     private val database: BookDatabase,
@@ -30,7 +34,8 @@ class BookRepositoryImpl @Inject constructor(
     private val fileMapper: FileMapper,
     private val coverParser: CoverParser,
     private val textParser: TextParser,
-    private val fileProvider: FileProvider
+    private val fileProvider: FileProvider,
+    private val textDiskCache: TextDiskCache
 ) : BookRepository {
 
     private val textCache = LruCache<Int, List<ReaderText>>(5)
@@ -52,22 +57,63 @@ class BookRepositoryImpl @Inject constructor(
 
     override suspend fun getText(bookId: Int): Result<List<ReaderText>> {
         textCache[bookId]?.let { return Result.success(it) }
+
+        // Try disk cache
+        textDiskCache.load(bookId)?.let { cached ->
+            textCache.put(bookId, cached)
+            return Result.success(cached)
+        }
+
         return withContext(Dispatchers.IO) {
             getBook(bookId)
                 .mapCatching { fileProvider.getFileFromBook(it).getOrThrow() }
                 .mapCatching { textParser.parse(it) }
         }.also { result ->
-            result.onSuccess { textCache.put(bookId, it) }
+            result.onSuccess {
+                textCache.put(bookId, it)
+                textDiskCache.save(bookId, it)
+            }
         }
     }
 
     override suspend fun getTextForBook(book: Book): Result<List<ReaderText>> {
         textCache[book.id]?.let { return Result.success(it) }
+
+        // Try disk cache
+        textDiskCache.load(book.id)?.let { cached ->
+            textCache.put(book.id, cached)
+            return Result.success(cached)
+        }
+
         return withContext(Dispatchers.IO) {
             runCatching { fileProvider.getFileFromBook(book).getOrThrow() }
                 .mapCatching { textParser.parse(it) }
         }.also { result ->
-            result.onSuccess { textCache.put(book.id, it) }
+            result.onSuccess {
+                textCache.put(book.id, it)
+                textDiskCache.save(book.id, it)
+            }
+        }
+    }
+
+    override suspend fun preParseText(books: List<Book>) {
+        withContext(Dispatchers.IO) {
+            books.forEach { book ->
+                // Skip if already cached in memory or disk
+                if (textCache[book.id] != null) return@forEach
+                if (textDiskCache.hasCache(book.id)) return@forEach
+
+                try {
+                    logI(TAG, "Pre-parsing book: [${book.title}]")
+                    val file = fileProvider.getFileFromBook(book).getOrThrow()
+                    val text = textParser.parse(file)
+                    textDiskCache.save(book.id, text)
+                    textCache.put(book.id, text)
+                    logI(TAG, "Pre-parsed book: [${book.title}] with ${text.size} items")
+                } catch (e: Exception) {
+                    logI(TAG, "Could not pre-parse book [${book.title}]: ${e.message}")
+                }
+            }
         }
     }
 
@@ -99,6 +145,7 @@ class BookRepositoryImpl @Inject constructor(
                 if (it == 0) throw Exception("Could not delete book in database.")
             }
             textCache.remove(book.id)
+            textDiskCache.remove(book.id)
         }
     }
 

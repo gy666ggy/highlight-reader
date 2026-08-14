@@ -28,6 +28,10 @@ interface BookRepository {
         book: Book
     ): Result<List<ReaderText>>
 
+    suspend fun preParseText(
+        books: List<Book>
+    )
+
     suspend fun getFileFromBook(
         bookId: Int
     ): Result<File>

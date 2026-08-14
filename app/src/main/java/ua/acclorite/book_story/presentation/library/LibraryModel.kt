@@ -24,6 +24,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import ua.acclorite.book_story.domain.use_case.book.DeleteBookUseCase
+import ua.acclorite.book_story.domain.use_case.book.PreParseTextUseCase
 import ua.acclorite.book_story.domain.use_case.book.SearchBooksUseCase
 import ua.acclorite.book_story.domain.use_case.book.UpdateBookUseCase
 import ua.acclorite.book_story.presentation.browse.BrowseScreen
@@ -36,7 +37,8 @@ import kotlin.coroutines.coroutineContext
 class LibraryModel @Inject constructor(
     private val updateBookUseCase: UpdateBookUseCase,
     private val searchBooksUseCase: SearchBooksUseCase,
-    private val deleteBookUseCase: DeleteBookUseCase
+    private val deleteBookUseCase: DeleteBookUseCase,
+    private val preParseTextUseCase: PreParseTextUseCase
 ) : ViewModel() {
 
     private val mutex = Mutex()
@@ -98,6 +100,11 @@ class LibraryModel @Inject constructor(
                                 hasSelectedItems = false,
                                 isLoading = false
                             )
+                        }
+
+                        // Pre-parse books in background for instant opening
+                        viewModelScope.launch(Dispatchers.IO) {
+                            preParseTextUseCase(books.map { it.data })
                         }
 
                         delay(500) // Delay for UI smoothness
