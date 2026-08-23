@@ -91,6 +91,9 @@ fun ReaderLayout(
     doubleClickTranslation: Boolean,
     isLoading: Boolean,
     showMenu: Boolean,
+    paragraphHighlightColors: Map<Int, Color> = emptyMap(),
+    modifyHighlightMode: Boolean = false,
+    onParagraphColorChange: (Int) -> Unit = {},
     menuVisibility: (ReaderEvent.OnMenuVisibility) -> Unit,
     openShareApp: (ReaderEvent.OnOpenShareApp) -> Unit,
     openWebBrowser: (ReaderEvent.OnOpenWebBrowser) -> Unit,
@@ -218,6 +221,10 @@ fun ReaderLayout(
                                     highlightedReadingThickness = highlightedReadingThickness,
                                     dialogueHighlightColor = dialogueHighlightColor,
                                     toolbarHidden = toolbarHidden,
+                                    paragraphIndex = index,
+                                    overrideColor = paragraphHighlightColors[index],
+                                    modifyHighlightMode = modifyHighlightMode,
+                                    onParagraphColorChange = onParagraphColorChange,
                                     openTranslator = openTranslator,
                                     menuVisibility = menuVisibility
                                 )

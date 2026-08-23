@@ -47,6 +47,10 @@ fun LazyItemScope.ReaderLayoutText(
     highlightedReadingThickness: FontWeight,
     dialogueHighlightColor: Color,
     toolbarHidden: Boolean,
+    paragraphIndex: Int = -1,
+    overrideColor: Color? = null,
+    modifyHighlightMode: Boolean = false,
+    onParagraphColorChange: (Int) -> Unit = {},
     openTranslator: (ReaderEvent.OnOpenTranslator) -> Unit,
     menuVisibility: (ReaderEvent.OnMenuVisibility) -> Unit
 ) {
@@ -107,6 +111,10 @@ fun LazyItemScope.ReaderLayoutText(
                 highlightedReadingThickness = highlightedReadingThickness,
                 dialogueHighlightColor = dialogueHighlightColor,
                 toolbarHidden = toolbarHidden,
+                paragraphIndex = paragraphIndex,
+                overrideColor = overrideColor,
+                modifyHighlightMode = modifyHighlightMode,
+                onParagraphColorChange = onParagraphColorChange,
                 openTranslator = openTranslator,
                 menuVisibility = menuVisibility
             )

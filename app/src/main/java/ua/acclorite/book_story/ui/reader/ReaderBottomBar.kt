@@ -73,7 +73,9 @@ fun ReaderBottomBar(
     replaceRules: () -> Unit,
     toggleBookmark: () -> Unit,
     nextBookmark: () -> Unit,
-    highlightColor: () -> Unit
+    highlightColor: () -> Unit,
+    modifyHighlight: () -> Unit,
+    modifyHighlightActive: Boolean = false
 ) {
     val currentIndex by remember {
         derivedStateOf {
@@ -179,6 +181,12 @@ fun ReaderBottomBar(
             BottomAction("替换", enabled = !lockMenu, onClick = replaceRules)
             BottomAction("编辑本章", enabled = !lockMenu, onClick = editChapter)
             BottomAction("高亮色", enabled = !lockMenu, onClick = highlightColor)
+            BottomAction(
+                text = if (modifyHighlightActive) "完成改色" else "修改高亮",
+                enabled = !lockMenu,
+                onClick = modifyHighlight,
+                highlight = modifyHighlightActive
+            )
             BottomAction("设置", enabled = !lockMenu, onClick = showSettings)
         }
     }
@@ -188,7 +196,8 @@ fun ReaderBottomBar(
 private fun BottomAction(
     text: String,
     enabled: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    highlight: Boolean = false
 ) {
     TextButton(
         enabled = enabled,
@@ -197,10 +206,10 @@ private fun BottomAction(
         StyledText(
             text = text,
             style = MaterialTheme.typography.labelLarge.copy(
-                color = if (enabled) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                color = when {
+                    !enabled -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                    highlight -> MaterialTheme.colorScheme.tertiary
+                    else -> MaterialTheme.colorScheme.primary
                 }
             )
         )

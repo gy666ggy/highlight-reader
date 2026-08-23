@@ -23,6 +23,8 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.background
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -40,6 +42,8 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -204,6 +208,23 @@ fun ReaderScaffold(
     var replaceEditingIndex by remember { mutableIntStateOf(-1) } // -1=新增, >=0=编辑
     var bookmarkDialogVisible by remember { mutableStateOf(false) }
     var highlightColorDialogVisible by remember { mutableStateOf(false) }
+    var paragraphHighlightColors by remember(book.id) {
+        mutableStateOf(
+            extraPrefs.getString("paragraph_colors", "").orEmpty()
+                .split(",")
+                .mapNotNull { entry ->
+                    val parts = entry.split(":")
+                    if (parts.size == 2) {
+                        val idx = parts[0].toIntOrNull() ?: return@mapNotNull null
+                        val color = parts[1].toIntOrNull() ?: return@mapNotNull null
+                        idx to color
+                    } else null
+                }.toMap()
+        )
+    }
+    var modifyHighlightMode by remember { mutableStateOf(false) }
+    var modifyHighlightColorDialogVisible by remember { mutableStateOf(false) }
+    var selectedModifyColor by remember { mutableStateOf<Color?>(null) }
 
     fun parseReplaceRules(): List<String> {
         return replacementRules.lines().filter { it.isNotBlank() }
@@ -297,6 +318,16 @@ fun ReaderScaffold(
         bookmarks = value
         extraPrefs.edit()
             .putString("bookmarks", value.sortedWith(compareBy({ it.index }, { it.offset })).joinToString(",") { it.toStorage() })
+            .apply()
+    }
+
+    fun persistParagraphColors(colors: Map<Int, Int>) {
+        paragraphHighlightColors = colors
+        extraPrefs.edit()
+            .putString(
+                "paragraph_colors",
+                if (colors.isEmpty()) "" else colors.entries.joinToString(",") { "${it.key}:${it.value}" }
+            )
             .apply()
     }
 
@@ -602,7 +633,16 @@ fun ReaderScaffold(
                             editingError = "还没有书签"
                         }
                     },
-                    highlightColor = { highlightColorDialogVisible = true }
+                    highlightColor = { highlightColorDialogVisible = true },
+                    modifyHighlight = {
+                        if (modifyHighlightMode) {
+                            modifyHighlightMode = false
+                            selectedModifyColor = null
+                        } else {
+                            modifyHighlightColorDialogVisible = true
+                        }
+                    },
+                    modifyHighlightActive = modifyHighlightMode
                 )
             }
         }
@@ -658,6 +698,20 @@ fun ReaderScaffold(
                 doubleClickTranslation = doubleClickTranslation,
                 isLoading = isLoading,
                 showMenu = showMenu,
+                paragraphHighlightColors = paragraphHighlightColors.mapValues { Color(it.value) },
+                modifyHighlightMode = modifyHighlightMode,
+                onParagraphColorChange = { index ->
+                    selectedModifyColor?.let { color ->
+                        val colorArgb = color.toArgb()
+                        val newColors = paragraphHighlightColors.toMutableMap()
+                        if (newColors[index] == colorArgb) {
+                            newColors.remove(index)
+                        } else {
+                            newColors[index] = colorArgb
+                        }
+                        persistParagraphColors(newColors)
+                    }
+                },
                 menuVisibility = menuVisibility,
                 openShareApp = openShareApp,
                 openWebBrowser = openWebBrowser,
@@ -683,6 +737,80 @@ fun ReaderScaffold(
             horizontalLimiterDimmingColor = backgroundColor,
             horizontalLimiterRulerColor = fontColor
         )
+
+        if (modifyHighlightMode) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 72.dp, start = 16.dp, end = 16.dp)
+            ) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.tertiaryContainer
+                    ),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(24.dp)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(selectedModifyColor ?: Color(dialogueHighlightColor))
+                                    .padding(0.dp)
+                            )
+                            Text(
+                                "点击段落改色",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onTertiaryContainer
+                            )
+                        }
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            TextButton(
+                                onClick = { modifyHighlightColorDialogVisible = true },
+                                contentPadding = PaddingValues(horizontal = 8.dp)
+                            ) {
+                                Text("换色", color = MaterialTheme.colorScheme.onTertiaryContainer)
+                            }
+                            TextButton(
+                                onClick = {
+                                    if (paragraphHighlightColors.isNotEmpty()) {
+                                        persistParagraphColors(emptyMap())
+                                        editingError = "已重置所有自定义高亮颜色"
+                                    } else {
+                                        editingError = "没有自定义颜色可重置"
+                                    }
+                                },
+                                contentPadding = PaddingValues(horizontal = 8.dp)
+                            ) {
+                                Text("重置", color = MaterialTheme.colorScheme.onTertiaryContainer)
+                            }
+                            TextButton(
+                                onClick = {
+                                    modifyHighlightMode = false
+                                    selectedModifyColor = null
+                                },
+                                contentPadding = PaddingValues(horizontal = 8.dp)
+                            ) {
+                                Text("退出", color = MaterialTheme.colorScheme.onTertiaryContainer)
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         if (isLoading) {
             ReaderLoadingPlaceholder()
@@ -1158,6 +1286,18 @@ fun ReaderScaffold(
                     highlightColorDialogVisible = false
                 },
                 onDismiss = { highlightColorDialogVisible = false }
+            )
+        }
+
+        if (modifyHighlightColorDialogVisible) {
+            ColorPickerDialog(
+                currentColor = selectedModifyColor ?: Color(dialogueHighlightColor),
+                onColorSelected = { color ->
+                    selectedModifyColor = color
+                    modifyHighlightMode = true
+                    modifyHighlightColorDialogVisible = false
+                },
+                onDismiss = { modifyHighlightColorDialogVisible = false }
             )
         }
 

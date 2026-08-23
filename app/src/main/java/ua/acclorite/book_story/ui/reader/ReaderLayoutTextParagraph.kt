@@ -50,9 +50,14 @@ fun LazyItemScope.ReaderLayoutTextParagraph(
     highlightedReadingThickness: FontWeight,
     dialogueHighlightColor: Color,
     toolbarHidden: Boolean,
+    paragraphIndex: Int = -1,
+    overrideColor: Color? = null,
+    modifyHighlightMode: Boolean = false,
+    onParagraphColorChange: (Int) -> Unit = {},
     openTranslator: (ReaderEvent.OnOpenTranslator) -> Unit,
     menuVisibility: (ReaderEvent.OnMenuVisibility) -> Unit
 ) {
+    val effectiveColor = overrideColor ?: dialogueHighlightColor
     Column(
         modifier = Modifier
             .animateItem(fadeInSpec = null, fadeOutSpec = null)
@@ -62,28 +67,36 @@ fun LazyItemScope.ReaderLayoutTextParagraph(
         horizontalAlignment = horizontalAlignment
     ) {
         StyledText(
-            text = paragraph.line.withDialogueHighlight(dialogueHighlightColor),
+            text = paragraph.line.withDialogueHighlight(effectiveColor),
             modifier = Modifier.then(
-                if (doubleClickTranslation && toolbarHidden) {
-                    Modifier.noRippleClickable(
-                        onDoubleClick = {
-                            openTranslator(
-                                ReaderEvent.OnOpenTranslator(
-                                    textToTranslate = paragraph.line.text,
-                                    translateWholeParagraph = true
+                when {
+                    modifyHighlightMode -> {
+                        Modifier.noRippleClickable(
+                            onClick = { onParagraphColorChange(paragraphIndex) }
+                        )
+                    }
+                    doubleClickTranslation && toolbarHidden -> {
+                        Modifier.noRippleClickable(
+                            onDoubleClick = {
+                                openTranslator(
+                                    ReaderEvent.OnOpenTranslator(
+                                        textToTranslate = paragraph.line.text,
+                                        translateWholeParagraph = true
+                                    )
                                 )
-                            )
-                        },
-                        onClick = {
-                            menuVisibility(
-                                ReaderEvent.OnMenuVisibility(
-                                    show = !showMenu,
-                                    saveCheckpoint = true
+                            },
+                            onClick = {
+                                menuVisibility(
+                                    ReaderEvent.OnMenuVisibility(
+                                        show = !showMenu,
+                                        saveCheckpoint = true
+                                    )
                                 )
-                            )
-                        }
-                    )
-                } else Modifier
+                            }
+                        )
+                    }
+                    else -> Modifier
+                }
             ),
             style = TextStyle(
                 fontFamily = fontFamily.font,
