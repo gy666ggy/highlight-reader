@@ -224,7 +224,25 @@ fun ReaderScaffold(
     }
     var modifyHighlightMode by remember { mutableStateOf(false) }
     var modifyHighlightColorDialogVisible by remember { mutableStateOf(false) }
-    var selectedModifyColor by remember { mutableStateOf<Color?>(null) }
+    var selectedModifyColor by remember {
+        val saved = globalPrefs.getInt("last_modify_highlight_color", -1)
+        mutableStateOf(if (saved != -1) Color(saved) else null)
+    }
+    val defaultButtonOrder = listOf(
+        "chapters", "bookmark", "nextBookmark", "search", "replace",
+        "editChapter", "highlightColor", "modifyHighlight", "settings"
+    )
+    var buttonOrder by remember {
+        val saved = globalPrefs.getString("bottom_button_order", "").orEmpty()
+            .split(",").filter { it.isNotBlank() }
+        mutableStateOf(if (saved.isNotEmpty() && saved.size == defaultButtonOrder.size) saved else defaultButtonOrder)
+    }
+    var sortDialogVisible by remember { mutableStateOf(false) }
+
+    fun persistButtonOrder(order: List<String>) {
+        buttonOrder = order
+        globalPrefs.edit().putString("bottom_button_order", order.joinToString(",")).apply()
+    }
 
     fun parseReplaceRules(): List<String> {
         return replacementRules.lines().filter { it.isNotBlank() }
@@ -637,12 +655,18 @@ fun ReaderScaffold(
                     modifyHighlight = {
                         if (modifyHighlightMode) {
                             modifyHighlightMode = false
-                            selectedModifyColor = null
+                            selectedModifyColor?.let { color ->
+                                globalPrefs.edit().putInt("last_modify_highlight_color", color.toArgb()).apply()
+                            }
+                        } else if (selectedModifyColor != null) {
+                            modifyHighlightMode = true
                         } else {
                             modifyHighlightColorDialogVisible = true
                         }
                     },
-                    modifyHighlightActive = modifyHighlightMode
+                    modifyHighlightActive = modifyHighlightMode,
+                    buttonOrder = buttonOrder,
+                    onReorderButtons = { sortDialogVisible = true }
                 )
             }
         }
@@ -1294,10 +1318,89 @@ fun ReaderScaffold(
                 currentColor = selectedModifyColor ?: Color(dialogueHighlightColor),
                 onColorSelected = { color ->
                     selectedModifyColor = color
+                    globalPrefs.edit().putInt("last_modify_highlight_color", color.toArgb()).apply()
                     modifyHighlightMode = true
                     modifyHighlightColorDialogVisible = false
                 },
                 onDismiss = { modifyHighlightColorDialogVisible = false }
+            )
+        }
+
+        if (sortDialogVisible) {
+            val buttonLabels = mapOf(
+                "chapters" to "目录",
+                "bookmark" to "书签",
+                "nextBookmark" to "去书签",
+                "search" to "搜索",
+                "replace" to "替换",
+                "editChapter" to "编辑本章",
+                "highlightColor" to "高亮色",
+                "modifyHighlight" to "修改高亮",
+                "settings" to "设置"
+            )
+            AlertDialog(
+                onDismissRequest = { sortDialogVisible = false },
+                title = { Text("排序底部按钮") },
+                text = {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        buttonOrder.forEachIndexed { index, id ->
+                            val label = buttonLabels[id] ?: id
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    "${index + 1}. $label",
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                                Row {
+                                    TextButton(
+                                        onClick = {
+                                            if (index > 0) {
+                                                val newOrder = buttonOrder.toMutableList()
+                                                val tmp = newOrder[index]
+                                                newOrder[index] = newOrder[index - 1]
+                                                newOrder[index - 1] = tmp
+                                                persistButtonOrder(newOrder)
+                                            }
+                                        },
+                                        enabled = index > 0,
+                                        contentPadding = PaddingValues(horizontal = 8.dp)
+                                    ) { Text("上移") }
+                                    TextButton(
+                                        onClick = {
+                                            if (index < buttonOrder.size - 1) {
+                                                val newOrder = buttonOrder.toMutableList()
+                                                val tmp = newOrder[index]
+                                                newOrder[index] = newOrder[index + 1]
+                                                newOrder[index + 1] = tmp
+                                                persistButtonOrder(newOrder)
+                                            }
+                                        },
+                                        enabled = index < buttonOrder.size - 1,
+                                        contentPadding = PaddingValues(horizontal = 8.dp)
+                                    ) { Text("下移") }
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(onClick = { sortDialogVisible = false }) {
+                        Text("完成")
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = { persistButtonOrder(defaultButtonOrder) }
+                    ) {
+                        Text("恢复默认", color = MaterialTheme.colorScheme.error)
+                    }
+                }
             )
         }
 

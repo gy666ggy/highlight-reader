@@ -75,7 +75,12 @@ fun ReaderBottomBar(
     nextBookmark: () -> Unit,
     highlightColor: () -> Unit,
     modifyHighlight: () -> Unit,
-    modifyHighlightActive: Boolean = false
+    modifyHighlightActive: Boolean = false,
+    buttonOrder: List<String> = listOf(
+        "chapters", "bookmark", "nextBookmark", "search", "replace",
+        "editChapter", "highlightColor", "modifyHighlight", "settings"
+    ),
+    onReorderButtons: () -> Unit = {}
 ) {
     val currentIndex by remember {
         derivedStateOf {
@@ -167,6 +172,31 @@ fun ReaderBottomBar(
             )
         }
 
+        val actions = mapOf(
+            "chapters" to ({ showChapters() }),
+            "bookmark" to ({ toggleBookmark() }),
+            "nextBookmark" to ({ nextBookmark() }),
+            "search" to ({ search() }),
+            "replace" to ({ replaceRules() }),
+            "editChapter" to ({ editChapter() }),
+            "highlightColor" to ({ highlightColor() }),
+            "modifyHighlight" to ({
+                modifyHighlight()
+            }),
+            "settings" to ({ showSettings() })
+        )
+        val labels = mapOf(
+            "chapters" to "目录",
+            "bookmark" to "书签",
+            "nextBookmark" to "去书签",
+            "search" to "搜索",
+            "replace" to "替换",
+            "editChapter" to "编辑本章",
+            "highlightColor" to "高亮色",
+            "modifyHighlight" to if (modifyHighlightActive) "完成改色" else "修改高亮",
+            "settings" to "设置"
+        )
+
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -174,20 +204,21 @@ fun ReaderBottomBar(
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            BottomAction("目录", enabled = !lockMenu, onClick = showChapters)
-            BottomAction("书签", enabled = !lockMenu, onClick = toggleBookmark)
-            BottomAction("去书签", enabled = !lockMenu, onClick = nextBookmark)
-            BottomAction("搜索", enabled = !lockMenu, onClick = search)
-            BottomAction("替换", enabled = !lockMenu, onClick = replaceRules)
-            BottomAction("编辑本章", enabled = !lockMenu, onClick = editChapter)
-            BottomAction("高亮色", enabled = !lockMenu, onClick = highlightColor)
+            buttonOrder.forEach { id ->
+                val label = labels[id] ?: id
+                val action = actions[id] ?: ({})
+                BottomAction(
+                    text = label,
+                    enabled = !lockMenu,
+                    onClick = { action() },
+                    highlight = id == "modifyHighlight" && modifyHighlightActive
+                )
+            }
             BottomAction(
-                text = if (modifyHighlightActive) "完成改色" else "修改高亮",
+                text = "排序",
                 enabled = !lockMenu,
-                onClick = modifyHighlight,
-                highlight = modifyHighlightActive
+                onClick = onReorderButtons
             )
-            BottomAction("设置", enabled = !lockMenu, onClick = showSettings)
         }
     }
 }
