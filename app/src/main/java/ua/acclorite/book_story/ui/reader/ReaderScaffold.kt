@@ -50,6 +50,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -244,6 +245,27 @@ fun ReaderScaffold(
         globalPrefs.edit().putString("bottom_button_order", order.joinToString(",")).apply()
     }
 
+    // 确保退出时所有修改高亮颜色同步落盘
+    DisposableEffect(book.id) {
+        onDispose {
+            // 同步保存段落颜色
+            if (paragraphHighlightColors.isNotEmpty()) {
+                extraPrefs.edit()
+                    .putString(
+                        "paragraph_colors",
+                        paragraphHighlightColors.entries.joinToString(",") { "${it.key}:${it.value}" }
+                    )
+                    .commit()
+            }
+            // 同步保存修改高亮的选中颜色
+            selectedModifyColor?.let { color ->
+                globalPrefs.edit()
+                    .putInt("last_modify_highlight_color", color.toArgb())
+                    .commit()
+            }
+        }
+    }
+
     fun parseReplaceRules(): List<String> {
         return replacementRules.lines().filter { it.isNotBlank() }
     }
@@ -346,7 +368,7 @@ fun ReaderScaffold(
                 "paragraph_colors",
                 if (colors.isEmpty()) "" else colors.entries.joinToString(",") { "${it.key}:${it.value}" }
             )
-            .apply()
+            .commit()  // 同步写入，确保立即落盘
     }
 
     fun currentPageToChapterEndRange(): IntRange? {
@@ -656,7 +678,7 @@ fun ReaderScaffold(
                         if (modifyHighlightMode) {
                             modifyHighlightMode = false
                             selectedModifyColor?.let { color ->
-                                globalPrefs.edit().putInt("last_modify_highlight_color", color.toArgb()).apply()
+                                globalPrefs.edit().putInt("last_modify_highlight_color", color.toArgb()).commit()
                             }
                         } else if (selectedModifyColor != null) {
                             modifyHighlightMode = true
@@ -1318,7 +1340,7 @@ fun ReaderScaffold(
                 currentColor = selectedModifyColor ?: Color(dialogueHighlightColor),
                 onColorSelected = { color ->
                     selectedModifyColor = color
-                    globalPrefs.edit().putInt("last_modify_highlight_color", color.toArgb()).apply()
+                    globalPrefs.edit().putInt("last_modify_highlight_color", color.toArgb()).commit()
                     modifyHighlightMode = true
                     modifyHighlightColorDialogVisible = false
                 },
