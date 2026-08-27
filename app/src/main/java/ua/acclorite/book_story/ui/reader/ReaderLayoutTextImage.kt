@@ -45,7 +45,7 @@ fun LazyItemScope.ReaderLayoutTextImage(
         contentAlignment = Alignment.Center
     ) {
         if (entry.filePath != null) {
-            // 用 Coil 加载（支持 GIF/WebP 动图）
+            // 用 Coil 加载（支持 GIF/WebP 动图）—— 满宽，与阅读器左右齐平
             val context = LocalContext.current
             AsyncImage(
                 model = ImageRequest.Builder(context)
@@ -53,7 +53,7 @@ fun LazyItemScope.ReaderLayoutTextImage(
                     .build(),
                 modifier = Modifier
                     .clip(RoundedCornerShape(imagesCornersRoundness))
-                    .fillMaxWidth(imagesWidth),
+                    .fillMaxWidth(),
                 contentDescription = null,
                 contentScale = ContentScale.FillWidth
             )
@@ -61,7 +61,7 @@ fun LazyItemScope.ReaderLayoutTextImage(
             Image(
                 modifier = Modifier
                     .clip(RoundedCornerShape(imagesCornersRoundness))
-                    .fillMaxWidth(imagesWidth),
+                    .fillMaxWidth(),
                 bitmap = entry.imageBitmap!!,
                 contentDescription = null,
                 colorFilter = imagesColorEffects,
