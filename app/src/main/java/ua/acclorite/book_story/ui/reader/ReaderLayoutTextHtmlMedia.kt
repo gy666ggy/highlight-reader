@@ -31,12 +31,10 @@ fun LazyItemScope.ReaderLayoutTextHtmlMedia(
 ) {
     val context = LocalContext.current
     val density = context.resources.displayMetrics.density
-    // 屏幕宽度（px），减去两侧 padding 后作为媒体宽度
     val screenWidthPx = context.resources.displayMetrics.widthPixels
     val paddingPx = (sidePadding.value * density * 2).toInt()
     val mediaWidthPx = (screenWidthPx - paddingPx).coerceAtLeast(1)
 
-    // 判断是否为纯音频（无 video 标签时用小高度）
     val isAudioOnly = !entry.htmlContent.contains("<video", ignoreCase = true)
     val mediaHeightPx = if (isAudioOnly) 80 else (mediaWidthPx * 9 / 16).coerceAtLeast(1)
     val mediaHeightDp = (mediaHeightPx / density).dp
@@ -51,20 +49,26 @@ fun LazyItemScope.ReaderLayoutTextHtmlMedia(
         AndroidView(
             factory = { ctx ->
                 WebView(ctx).apply {
+                    // 必须启用 JS，视频播放控件依赖 JS
                     settings.javaScriptEnabled = true
                     settings.domStorageEnabled = true
-                    settings.mediaPlaybackRequiresUserGesture = false
+                    // 用户点击后才播放
+                    settings.mediaPlaybackRequiresUserGesture = true
+                    // 允许读取本地文件
                     settings.allowFileAccess = true
                     settings.allowContentAccess = true
                     settings.cacheMode = android.webkit.WebSettings.LOAD_DEFAULT
                     settings.loadWithOverviewMode = true
                     settings.useWideViewPort = true
                     webViewClient = WebViewClient()
+                    // WebChromeClient 是视频播放的必要条件
                     webChromeClient = WebChromeClient()
+                    // 允许混合内容（http 资源在 https/file 上下文中加载）
+                    settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
                 }
             },
             update = { webView ->
-                // 把相对路径转为缓存目录绝对路径（兼容双引号和单引号）
+                // 1. 修复路径：把相对路径转为缓存目录绝对路径
                 val fixedHtml = entry.htmlContent
                     .replace(
                         Regex("""src="([^"]+)"""),
@@ -89,7 +93,22 @@ fun LazyItemScope.ReaderLayoutTextHtmlMedia(
                         }
                     )
 
-                // 包装成完整 HTML，确保视频满宽播放
+                // 2. 注入 controls / preload / playsinline 属性
+                    .replace(
+                        Regex("""<video(?![^>]*\bcontrols\b)([^>]*)>""", RegexOption.IGNORE_CASE),
+                        "<video$1 controls preload=\"auto\" playsinline>"
+                    )
+                    .replace(
+                        Regex("""<audio(?![^>]*\bcontrols\b)([^>]*)>""", RegexOption.IGNORE_CASE),
+                        "<audio$1 controls preload=\"auto\">"
+                    )
+                    // 如果 <video> 已有 controls 但缺 playsinline，补上
+                    .replace(
+                        Regex("""<video(?![^>]*\bplaysinline\b)([^>]*)>""", RegexOption.IGNORE_CASE),
+                        "<video$1 playsinline>"
+                    )
+
+                // 3. 包装成完整 HTML
                 val bg = if (isAudioOnly) "transparent" else "#000"
                 val wrappedHtml = """
                     <!DOCTYPE html>
@@ -107,6 +126,14 @@ fun LazyItemScope.ReaderLayoutTextHtmlMedia(
                     </head>
                     <body>
                     $fixedHtml
+                    <script>
+                        // 点击视频区域播放/暂停
+                        document.querySelectorAll('video').forEach(function(v) {
+                            v.addEventListener('click', function() {
+                                if (v.paused) { v.play(); } else { v.pause(); }
+                            });
+                        });
+                    </script>
                     </body>
                     </html>
                 """.trimIndent()
