@@ -67,6 +67,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
+import java.io.File
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import ua.acclorite.book_story.domain.model.library.Book
@@ -210,18 +211,7 @@ fun ReaderScaffold(
     var bookmarkDialogVisible by remember { mutableStateOf(false) }
     var highlightColorDialogVisible by remember { mutableStateOf(false) }
     var paragraphHighlightColors by remember(book.id) {
-        mutableStateOf(
-            extraPrefs.getString("paragraph_colors", "").orEmpty()
-                .split(",")
-                .mapNotNull { entry ->
-                    val parts = entry.split(":")
-                    if (parts.size == 2) {
-                        val idx = parts[0].toIntOrNull() ?: return@mapNotNull null
-                        val color = parts[1].toIntOrNull() ?: return@mapNotNull null
-                        idx to color
-                    } else null
-                }.toMap()
-        )
+        mutableStateOf(loadParagraphColors(context, book.id, extraPrefs))
     }
     var modifyHighlightMode by remember { mutableStateOf(false) }
     var modifyHighlightColorDialogVisible by remember { mutableStateOf(false) }
@@ -248,14 +238,9 @@ fun ReaderScaffold(
     // 确保退出时所有修改高亮颜色同步落盘
     DisposableEffect(book.id) {
         onDispose {
-            // 同步保存段落颜色
+            // 同步保存段落颜色到文件（永久存储）
             if (paragraphHighlightColors.isNotEmpty()) {
-                extraPrefs.edit()
-                    .putString(
-                        "paragraph_colors",
-                        paragraphHighlightColors.entries.joinToString(",") { "${it.key}:${it.value}" }
-                    )
-                    .commit()
+                saveParagraphColors(context, book.id, paragraphHighlightColors)
             }
             // 同步保存修改高亮的选中颜色
             selectedModifyColor?.let { color ->
@@ -363,12 +348,7 @@ fun ReaderScaffold(
 
     fun persistParagraphColors(colors: Map<Int, Int>) {
         paragraphHighlightColors = colors
-        extraPrefs.edit()
-            .putString(
-                "paragraph_colors",
-                if (colors.isEmpty()) "" else colors.entries.joinToString(",") { "${it.key}:${it.value}" }
-            )
-            .commit()  // 同步写入，确保立即落盘
+        saveParagraphColors(context, book.id, colors)
     }
 
     fun currentPageToChapterEndRange(): IntRange? {
@@ -1671,4 +1651,109 @@ private fun findFileUriByPath(
         }
     }
     return null
+}
+
+/**
+ * 获取段落高亮颜色存储文件
+ * 使用文件存储而非 SharedPreferences，确保永久可靠保存
+ */
+private fun getParagraphColorsFile(context: Context, bookId: Int): File {
+    val dir = File(context.filesDir, "paragraph_colors")
+    if (!dir.exists()) dir.mkdirs()
+    return File(dir, "book_$bookId.dat")
+}
+
+/**
+ * 保存段落高亮颜色到文件（同步写入，确保立即落盘）
+ * 格式：每行一个 "index:colorArgb"
+ */
+private fun saveParagraphColors(context: Context, bookId: Int, colors: Map<Int, Int>) {
+    val file = getParagraphColorsFile(context, bookId)
+    runCatching {
+        if (colors.isEmpty()) {
+            file.delete()
+        } else {
+            // 原子写入：先写临时文件再重命名，防止写入过程中断导致文件损坏
+            val tempFile = File(file.parent, file.name + ".tmp")
+            tempFile.bufferedWriter().use { writer ->
+                colors.entries.forEach { (index, color) ->
+                    writer.write("$index:$color\n")
+                }
+            }
+            if (tempFile.renameTo(file)) {
+                // 写入成功，清理旧的 SharedPreferences 数据（迁移完成）
+                // 保留 SharedPreferences 作为备份，不删除
+            } else {
+                // 重命名失败，直接写原文件
+                file.bufferedWriter().use { writer ->
+                    colors.entries.forEach { (index, color) ->
+                        writer.write("$index:$color\n")
+                    }
+                }
+            }
+        }
+    }.onFailure {
+        // 文件写入失败时，降级保存到 SharedPreferences 作为备份
+        val prefs = context.getSharedPreferences("reader_extra_$bookId", Context.MODE_PRIVATE)
+        prefs.edit()
+            .putString(
+                "paragraph_colors",
+                if (colors.isEmpty()) "" else colors.entries.joinToString(",") { "${it.key}:${it.value}" }
+            )
+            .commit()
+    }
+}
+
+/**
+ * 从文件加载段落高亮颜色
+ * 优先从文件加载，文件不存在时从 SharedPreferences 迁移
+ */
+private fun loadParagraphColors(
+    context: Context,
+    bookId: Int,
+    extraPrefs: android.content.SharedPreferences
+): Map<Int, Int> {
+    val file = getParagraphColorsFile(context, bookId)
+
+    // 优先从文件加载
+    if (file.exists() && file.length() > 0) {
+        return runCatching {
+            file.bufferedReader().useLines { lines ->
+                lines.mapNotNull { line ->
+                    val parts = line.trim().split(":")
+                    if (parts.size == 2) {
+                        val idx = parts[0].toIntOrNull()
+                        val color = parts[1].toIntOrNull()
+                        if (idx != null && color != null) idx to color else null
+                    } else null
+                }.toMap()
+            }
+        }.getOrElse {
+            // 文件读取失败，尝试从 SharedPreferences 恢复
+            loadFromPrefs(extraPrefs)
+        }
+    }
+
+    // 文件不存在，从 SharedPreferences 加载（旧数据迁移）
+    val prefsColors = loadFromPrefs(extraPrefs)
+    if (prefsColors.isNotEmpty()) {
+        // 迁移到文件存储
+        saveParagraphColors(context, bookId, prefsColors)
+    }
+    return prefsColors
+}
+
+private fun loadFromPrefs(extraPrefs: android.content.SharedPreferences): Map<Int, Int> {
+    return extraPrefs.getString("paragraph_colors", "").orEmpty()
+        .split(",")
+        .mapNotNull { entry ->
+            val trimmed = entry.trim()
+            if (trimmed.isEmpty()) return@mapNotNull null
+            val parts = trimmed.split(":")
+            if (parts.size == 2) {
+                val idx = parts[0].toIntOrNull() ?: return@mapNotNull null
+                val color = parts[1].toIntOrNull() ?: return@mapNotNull null
+                idx to color
+            } else null
+        }.toMap()
 }
