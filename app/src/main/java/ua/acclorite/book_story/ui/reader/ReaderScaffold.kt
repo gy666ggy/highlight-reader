@@ -67,7 +67,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
-import java.io.File
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import ua.acclorite.book_story.domain.model.library.Book
