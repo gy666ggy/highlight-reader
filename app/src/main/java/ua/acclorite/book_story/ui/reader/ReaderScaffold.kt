@@ -185,6 +185,17 @@ fun ReaderScaffold(
     var displayedText by remember(baseText, replacementRules) {
         mutableStateOf(baseText.applyReplacementRules(replacementRules))
     }
+    // 文本哈希键映射：列表索引 → 段落文本哈希值
+    // 使用原始文本(替换前)的哈希作为稳定标识，确保跨会话一致
+    val paragraphTextKeys = remember(baseText) {
+        baseText.mapIndexed { index, entry ->
+            val hash = when (entry) {
+                is ReaderText.Text -> entry.line.text.hashCode()
+                else -> index
+            }
+            index to hash
+        }.toMap()
+    }
     var editingStartIndex by remember { mutableIntStateOf(-1) }
     var editingEndIndex by remember { mutableIntStateOf(-1) }
     var editingValue by remember { mutableStateOf("") }
@@ -725,14 +736,15 @@ fun ReaderScaffold(
                 showMenu = showMenu,
                 paragraphHighlightColors = paragraphHighlightColors.mapValues { Color(it.value) },
                 modifyHighlightMode = modifyHighlightMode,
-                onParagraphColorChange = { index ->
+                paragraphTextKeys = paragraphTextKeys,
+                onParagraphColorChange = { textKey ->
                     selectedModifyColor?.let { color ->
                         val colorArgb = color.toArgb()
                         val newColors = paragraphHighlightColors.toMutableMap()
-                        if (newColors[index] == colorArgb) {
-                            newColors.remove(index)
+                        if (newColors[textKey] == colorArgb) {
+                            newColors.remove(textKey)
                         } else {
-                            newColors[index] = colorArgb
+                            newColors[textKey] = colorArgb
                         }
                         persistParagraphColors(newColors)
                     }
@@ -1655,11 +1667,12 @@ private fun findFileUriByPath(
 /**
  * 获取段落高亮颜色存储文件
  * 使用文件存储而非 SharedPreferences，确保永久可靠保存
+ * v2: 使用文本哈希作为键，而非列表索引，确保跨会话稳定
  */
 private fun getParagraphColorsFile(context: Context, bookId: Int): File {
     val dir = File(context.filesDir, "paragraph_colors")
     if (!dir.exists()) dir.mkdirs()
-    return File(dir, "book_$bookId.dat")
+    return File(dir, "book_${bookId}_v2.dat")
 }
 
 /**
@@ -1705,54 +1718,31 @@ private fun saveParagraphColors(context: Context, bookId: Int, colors: Map<Int, 
 
 /**
  * 从文件加载段落高亮颜色
- * 优先从文件加载，文件不存在时从 SharedPreferences 迁移
+ * v2: 使用文本哈希作为键，不兼容旧版索引数据，旧数据会被忽略
  */
 private fun loadParagraphColors(
     context: Context,
     bookId: Int,
-    extraPrefs: android.content.SharedPreferences
+    @Suppress("UNUSED_PARAMETER") extraPrefs: android.content.SharedPreferences
 ): Map<Int, Int> {
     val file = getParagraphColorsFile(context, bookId)
 
-    // 优先从文件加载
+    // 从 v2 文件加载
     if (file.exists() && file.length() > 0) {
         return runCatching {
             file.bufferedReader().useLines { lines ->
                 lines.mapNotNull { line ->
                     val parts = line.trim().split(":")
                     if (parts.size == 2) {
-                        val idx = parts[0].toIntOrNull()
+                        val key = parts[0].toIntOrNull()
                         val color = parts[1].toIntOrNull()
-                        if (idx != null && color != null) idx to color else null
+                        if (key != null && color != null) key to color else null
                     } else null
                 }.toMap()
             }
-        }.getOrElse {
-            // 文件读取失败，尝试从 SharedPreferences 恢复
-            loadFromPrefs(extraPrefs)
-        }
+        }.getOrElse { emptyMap() }
     }
 
-    // 文件不存在，从 SharedPreferences 加载（旧数据迁移）
-    val prefsColors = loadFromPrefs(extraPrefs)
-    if (prefsColors.isNotEmpty()) {
-        // 迁移到文件存储
-        saveParagraphColors(context, bookId, prefsColors)
-    }
-    return prefsColors
-}
-
-private fun loadFromPrefs(extraPrefs: android.content.SharedPreferences): Map<Int, Int> {
-    return extraPrefs.getString("paragraph_colors", "").orEmpty()
-        .split(",")
-        .mapNotNull { entry ->
-            val trimmed = entry.trim()
-            if (trimmed.isEmpty()) return@mapNotNull null
-            val parts = trimmed.split(":")
-            if (parts.size == 2) {
-                val idx = parts[0].toIntOrNull() ?: return@mapNotNull null
-                val color = parts[1].toIntOrNull() ?: return@mapNotNull null
-                idx to color
-            } else null
-        }.toMap()
+    // v2 文件不存在，返回空（不迁移旧索引数据，因为键不兼容）
+    return emptyMap()
 }

@@ -92,6 +92,7 @@ fun ReaderLayout(
     isLoading: Boolean,
     showMenu: Boolean,
     paragraphHighlightColors: Map<Int, Color> = emptyMap(),
+    paragraphTextKeys: Map<Int, Int> = emptyMap(),
     modifyHighlightMode: Boolean = false,
     onParagraphColorChange: (Int) -> Unit = {},
     menuVisibility: (ReaderEvent.OnMenuVisibility) -> Unit,
@@ -193,6 +194,7 @@ fun ReaderLayout(
                         !images && (entry is ReaderText.Image || entry is ReaderText.HtmlMedia || previousEntry is ReaderText.Image || previousEntry is ReaderText.HtmlMedia) -> return@itemsIndexed
                         !imagesCaptions && (previousEntry is ReaderText.Image || previousEntry is ReaderText.HtmlMedia) -> return@itemsIndexed
                         else -> {
+                            val textKey = paragraphTextKeys[index] ?: index
                             SpacedItem(
                                 index = index,
                                 spacing = paragraphHeight
@@ -221,8 +223,8 @@ fun ReaderLayout(
                                     highlightedReadingThickness = highlightedReadingThickness,
                                     dialogueHighlightColor = dialogueHighlightColor,
                                     toolbarHidden = toolbarHidden,
-                                    paragraphIndex = index,
-                                    overrideColor = paragraphHighlightColors[index],
+                                    paragraphIndex = textKey,
+                                    overrideColor = paragraphHighlightColors[textKey],
                                     modifyHighlightMode = modifyHighlightMode,
                                     onParagraphColorChange = onParagraphColorChange,
                                     openTranslator = openTranslator,
