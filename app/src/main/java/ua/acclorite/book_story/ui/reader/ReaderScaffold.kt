@@ -477,15 +477,46 @@ fun ReaderScaffold(
 
     fun saveEditedChapter(value: String) {
         if (editingStartIndex < 0 || editingEndIndex <= editingStartIndex) return
+
+        // === 颜色迁移：编辑前记录旧段落的哈希和颜色，编辑后迁移到新哈希 ===
+        // 仅处理编辑范围内的文本段落
+        val oldTexts = baseText.subList(editingStartIndex, editingEndIndex)
+            .filterIsInstance<ReaderText.Text>()
+            .map { it.line.text }
+
         val updatedText = baseText.toMutableList()
+        val newLines = value.lines().filter { it.isNotBlank() }
         val replacement = buildList {
-            value.lines()
-                .filter { it.isNotBlank() }
-                .forEach { add(ReaderText.Text(AnnotatedString(it))) }
+            newLines.forEach { add(ReaderText.Text(AnnotatedString(it))) }
         }
         updatedText.subList(editingStartIndex, editingEndIndex).clear()
         updatedText.addAll(editingStartIndex, replacement)
+
+        // 按位置匹配旧段落和新段落，把颜色从旧哈希迁移到新哈希
+        val newColors = paragraphHighlightColors.toMutableMap()
+        val minSize = minOf(oldTexts.size, newLines.size)
+        for (i in 0 until minSize) {
+            val oldHash = oldTexts[i].hashCode()
+            val newHash = newLines[i].hashCode()
+            if (oldHash != newHash) {
+                // 文本变了：把旧哈希的颜色迁移到新哈希
+                val color = newColors.remove(oldHash)
+                if (color != null) {
+                    newColors[newHash] = color
+                }
+            }
+            // 如果 oldHash == newHash，文本没变，颜色自然保留，无需处理
+        }
+        // 清理被删除段落的颜色（旧段落数量 > 新段落数量时，多出来的段落颜色清除）
+        if (oldTexts.size > newLines.size) {
+            for (i in newLines.size until oldTexts.size) {
+                newColors.remove(oldTexts[i].hashCode())
+            }
+        }
+
         baseText = updatedText
+        paragraphHighlightColors = newColors
+        persistParagraphColors(newColors)
 
         if (book.filePath.endsWith(".txt", ignoreCase = true)) {
             editingError = "正在保存到手机原 TXT 文件…"
