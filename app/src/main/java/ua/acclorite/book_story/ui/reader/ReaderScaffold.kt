@@ -200,7 +200,8 @@ fun ReaderScaffold(
     var editingEndIndex by remember { mutableIntStateOf(-1) }
     var editingValue by remember { mutableStateOf("") }
     var editingError by remember { mutableStateOf<String?>(null) }
-    // 本章搜索替换状态
+    // 本章替换状态
+    var chapterReplaceDialogVisible by remember { mutableStateOf(false) }
     var chapterSearchValue by remember { mutableStateOf("") }
     var chapterReplaceValue by remember { mutableStateOf("") }
     var chapterUseRegex by remember { mutableStateOf(false) }
@@ -236,7 +237,7 @@ fun ReaderScaffold(
     }
     val defaultButtonOrder = listOf(
         "chapters", "bookmark", "nextBookmark", "search", "replace",
-        "editChapter", "highlightColor", "modifyHighlight", "settings"
+        "chapterReplace", "editChapter", "highlightColor", "modifyHighlight", "settings"
     )
     var buttonOrder by remember {
         val saved = globalPrefs.getString("bottom_button_order", "").orEmpty()
@@ -385,10 +386,6 @@ fun ReaderScaffold(
             .filterIsInstance<ReaderText.Text>()
             .joinToString("\n") { it.line.text }
         editingError = null
-        chapterSearchValue = ""
-        chapterReplaceValue = ""
-        chapterUseRegex = false
-        chapterSearchResults = emptyList()
     }
 
     fun searchInChapter() {
@@ -744,6 +741,20 @@ fun ReaderScaffold(
                     showChapters = { showChaptersDrawer(ReaderEvent.OnShowChaptersDrawer) },
                     showSettings = { showSettingsBottomSheet(ReaderEvent.OnShowSettingsBottomSheet) },
                     editChapter = { openChapterEditor() },
+                    chapterReplace = {
+                        val range = currentPageToChapterEndRange() ?: return@ReaderBottomBar
+                        editingStartIndex = range.first
+                        editingEndIndex = range.last + 1
+                        editingValue = baseText.subList(editingStartIndex, editingEndIndex)
+                            .filterIsInstance<ReaderText.Text>()
+                            .joinToString("\n") { it.line.text }
+                        chapterSearchValue = ""
+                        chapterReplaceValue = ""
+                        chapterUseRegex = false
+                        chapterSearchResults = emptyList()
+                        editingError = null
+                        chapterReplaceDialogVisible = true
+                    },
                     search = { searchDialogVisible = true },
                     replaceRules = {
                         replaceValue = replacementRules
@@ -954,25 +965,44 @@ fun ReaderScaffold(
                 onDismissRequest = { editingStartIndex = -1 },
                 title = { Text("编辑当前章节") },
                 text = {
-                    Column(
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedTextField(
                             value = editingValue,
-                            onValueChange = {
-                                editingValue = it
-                                chapterSearchResults = emptyList()
-                            },
-                            minLines = 6,
-                            maxLines = 12,
+                            onValueChange = { editingValue = it },
+                            minLines = 8,
+                            maxLines = 18,
                             label = { Text("章节内容") }
                         )
-                        HorizontalDivider()
-                        Text(
-                            "搜索替换（仅本章）",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.primary
-                        )
+                        editingError?.let { msg ->
+                            Text(
+                                msg,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (msg.startsWith("已")) MaterialTheme.colorScheme.primary
+                                       else MaterialTheme.colorScheme.error
+                            )
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            saveEditedChapter(editingValue)
+                            editingStartIndex = -1
+                        }
+                    ) { Text("保存") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { editingStartIndex = -1 }) { Text("取消") }
+                }
+            )
+        }
+
+        if (chapterReplaceDialogVisible) {
+            AlertDialog(
+                onDismissRequest = { chapterReplaceDialogVisible = false },
+                title = { Text("本章替换") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedTextField(
                             value = chapterSearchValue,
                             onValueChange = {
@@ -1005,7 +1035,7 @@ fun ReaderScaffold(
                         }
                         if (chapterSearchResults.isNotEmpty()) {
                             Text(
-                                "找到 ${chapterSearchResults.size} 处匹配，点击替换",
+                                "找到 ${chapterSearchResults.size} 处匹配，点击逐条替换",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.primary
                             )
@@ -1042,19 +1072,15 @@ fun ReaderScaffold(
                             Text(
                                 msg,
                                 style = MaterialTheme.typography.labelSmall,
-                                color = if (msg.startsWith("已替换")) MaterialTheme.colorScheme.primary
+                                color = if (msg.startsWith("已")) MaterialTheme.colorScheme.primary
                                        else MaterialTheme.colorScheme.error
                             )
                         }
                     }
                 },
                 confirmButton = {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        TextButton(onClick = { searchInChapter() }) {
-                            Text("搜索")
-                        }
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        TextButton(onClick = { searchInChapter() }) { Text("搜索") }
                         if (chapterSearchResults.isNotEmpty()) {
                             TextButton(onClick = { replaceAllInChapter() }) {
                                 Text("全部替换", color = MaterialTheme.colorScheme.tertiary)
@@ -1062,16 +1088,12 @@ fun ReaderScaffold(
                         }
                         Button(onClick = {
                             saveEditedChapter(editingValue)
-                            editingStartIndex = -1
-                        }) {
-                            Text("保存")
-                        }
+                            chapterReplaceDialogVisible = false
+                        }) { Text("保存") }
                     }
                 },
                 dismissButton = {
-                    TextButton(onClick = { editingStartIndex = -1 }) {
-                        Text("取消")
-                    }
+                    TextButton(onClick = { chapterReplaceDialogVisible = false }) { Text("取消") }
                 }
             )
         }
@@ -1538,6 +1560,7 @@ fun ReaderScaffold(
                 "nextBookmark" to "去书签",
                 "search" to "搜索",
                 "replace" to "替换",
+                "chapterReplace" to "本章替换",
                 "editChapter" to "编辑本章",
                 "highlightColor" to "高亮色",
                 "modifyHighlight" to "修改高亮",

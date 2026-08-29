@@ -69,6 +69,7 @@ fun ReaderBottomBar(
     showChapters: () -> Unit,
     showSettings: () -> Unit,
     editChapter: () -> Unit,
+    chapterReplace: () -> Unit,
     search: () -> Unit,
     replaceRules: () -> Unit,
     toggleBookmark: () -> Unit,
@@ -78,7 +79,7 @@ fun ReaderBottomBar(
     modifyHighlightActive: Boolean = false,
     buttonOrder: List<String> = listOf(
         "chapters", "bookmark", "nextBookmark", "search", "replace",
-        "editChapter", "highlightColor", "modifyHighlight", "settings"
+        "chapterReplace", "editChapter", "highlightColor", "modifyHighlight", "settings"
     ),
     onReorderButtons: () -> Unit = {}
 ) {
@@ -178,6 +179,7 @@ fun ReaderBottomBar(
             "nextBookmark" to ({ nextBookmark() }),
             "search" to ({ search() }),
             "replace" to ({ replaceRules() }),
+            "chapterReplace" to ({ chapterReplace() }),
             "editChapter" to ({ editChapter() }),
             "highlightColor" to ({ highlightColor() }),
             "modifyHighlight" to ({
@@ -191,6 +193,7 @@ fun ReaderBottomBar(
             "nextBookmark" to "去书签",
             "search" to "搜索",
             "replace" to "替换",
+            "chapterReplace" to "本章替换",
             "editChapter" to "编辑本章",
             "highlightColor" to "高亮色",
             "modifyHighlight" to if (modifyHighlightActive) "完成改色" else "修改高亮",
