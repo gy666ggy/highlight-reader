@@ -398,15 +398,23 @@ fun ReaderScaffold(
             editingError = null
             return
         }
+        val text = editingValue
+        fun makePreview(start: Int, end: Int): String {
+            val ctxStart = (start - 15).coerceAtLeast(0)
+            val ctxEnd = (end + 15).coerceAtMost(text.length)
+            val prefix = if (ctxStart > 0) "…" else ""
+            val suffix = if (ctxEnd < text.length) "…" else ""
+            return prefix + text.substring(ctxStart, ctxEnd) + suffix
+        }
         val matches = if (chapterUseRegex) {
             runCatching {
-                Regex(query).findAll(editingValue).mapIndexed { i, m ->
+                Regex(query).findAll(text).mapIndexed { i, m ->
                     ChapterMatchResult(
                         index = i,
                         start = m.range.first,
                         end = m.range.last + 1,
                         matched = m.value,
-                        preview = buildPreview(editingValue, m.range.first, m.range.last + 1)
+                        preview = makePreview(m.range.first, m.range.last + 1)
                     )
                 }.toList()
             }.getOrElse {
@@ -418,14 +426,14 @@ fun ReaderScaffold(
             var pos = 0
             var i = 0
             while (true) {
-                val found = editingValue.indexOf(query, pos)
+                val found = text.indexOf(query, pos)
                 if (found < 0) break
                 results.add(ChapterMatchResult(
                     index = i++,
                     start = found,
                     end = found + query.length,
                     matched = query,
-                    preview = buildPreview(editingValue, found, found + query.length)
+                    preview = makePreview(found, found + query.length)
                 ))
                 pos = found + query.length
             }
@@ -433,14 +441,6 @@ fun ReaderScaffold(
         }
         chapterSearchResults = matches
         editingError = if (matches.isEmpty()) "本章未找到匹配内容" else null
-    }
-
-    fun buildPreview(text: String, start: Int, end: Int): String {
-        val ctxStart = (start - 15).coerceAtLeast(0)
-        val ctxEnd = (end + 15).coerceAtMost(text.length)
-        val prefix = if (ctxStart > 0) "…" else ""
-        val suffix = if (ctxEnd < text.length) "…" else ""
-        return prefix + text.substring(ctxStart, ctxEnd) + suffix
     }
 
     fun replaceOneInChapter(match: ChapterMatchResult) {
