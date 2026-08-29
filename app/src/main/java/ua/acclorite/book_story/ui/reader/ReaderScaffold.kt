@@ -204,7 +204,7 @@ fun ReaderScaffold(
     var chapterSearchValue by remember { mutableStateOf("") }
     var chapterReplaceValue by remember { mutableStateOf("") }
     var chapterUseRegex by remember { mutableStateOf(false) }
-    var chapterSearchResultCount by remember { mutableIntStateOf(-1) }
+    var chapterSearchResults by remember { mutableStateOf(emptyList<ChapterMatchResult>()) }
     var searchDialogVisible by remember { mutableStateOf(false) }
     var searchValue by remember { mutableStateOf("") }
     var searchReplaceValue by remember { mutableStateOf("") }
@@ -388,31 +388,72 @@ fun ReaderScaffold(
         chapterSearchValue = ""
         chapterReplaceValue = ""
         chapterUseRegex = false
-        chapterSearchResultCount = -1
+        chapterSearchResults = emptyList()
     }
 
     fun searchInChapter() {
         val query = chapterSearchValue.trim()
         if (query.isBlank()) {
-            chapterSearchResultCount = -1
+            chapterSearchResults = emptyList()
             editingError = null
             return
         }
-        val count = if (chapterUseRegex) {
+        val matches = if (chapterUseRegex) {
             runCatching {
-                Regex(query).findAll(editingValue).count()
+                Regex(query).findAll(editingValue).mapIndexed { i, m ->
+                    ChapterMatchResult(
+                        index = i,
+                        start = m.range.first,
+                        end = m.range.last + 1,
+                        matched = m.value,
+                        preview = buildPreview(editingValue, m.range.first, m.range.last + 1)
+                    )
+                }.toList()
             }.getOrElse {
                 editingError = "正则表达式无效：${it.message}"
                 return
             }
         } else {
-            editingValue.split(query).size - 1
+            val results = mutableListOf<ChapterMatchResult>()
+            var pos = 0
+            var i = 0
+            while (true) {
+                val found = editingValue.indexOf(query, pos)
+                if (found < 0) break
+                results.add(ChapterMatchResult(
+                    index = i++,
+                    start = found,
+                    end = found + query.length,
+                    matched = query,
+                    preview = buildPreview(editingValue, found, found + query.length)
+                ))
+                pos = found + query.length
+            }
+            results
         }
-        chapterSearchResultCount = count
-        editingError = if (count > 0) null else "本章未找到匹配内容"
+        chapterSearchResults = matches
+        editingError = if (matches.isEmpty()) "本章未找到匹配内容" else null
     }
 
-    fun replaceInChapter() {
+    fun buildPreview(text: String, start: Int, end: Int): String {
+        val ctxStart = (start - 15).coerceAtLeast(0)
+        val ctxEnd = (end + 15).coerceAtMost(text.length)
+        val prefix = if (ctxStart > 0) "…" else ""
+        val suffix = if (ctxEnd < text.length) "…" else ""
+        return prefix + text.substring(ctxStart, ctxEnd) + suffix
+    }
+
+    fun replaceOneInChapter(match: ChapterMatchResult) {
+        val replacement = chapterReplaceValue
+        val newStart = match.start
+        val newEnd = match.end
+        editingValue = editingValue.substring(0, newStart) + replacement + editingValue.substring(newEnd)
+        // 重新搜索以更新位置（替换后偏移变化）
+        searchInChapter()
+        editingError = "已替换第 ${match.index + 1} 处"
+    }
+
+    fun replaceAllInChapter() {
         val query = chapterSearchValue.trim()
         val replacement = chapterReplaceValue
         if (query.isBlank()) {
@@ -429,12 +470,12 @@ fun ReaderScaffold(
         }
         if (replaced == editingValue) {
             editingError = "本章未找到需要替换的内容"
-            chapterSearchResultCount = 0
             return
         }
+        val count = chapterSearchResults.size
         editingValue = replaced
-        chapterSearchResultCount = -1
-        editingError = "已替换本章全部匹配内容"
+        chapterSearchResults = emptyList()
+        editingError = "已替换 $count 处匹配内容"
     }
 
     fun saveEditedChapter(value: String) {
@@ -918,9 +959,12 @@ fun ReaderScaffold(
                     ) {
                         OutlinedTextField(
                             value = editingValue,
-                            onValueChange = { editingValue = it },
-                            minLines = 8,
-                            maxLines = 18,
+                            onValueChange = {
+                                editingValue = it
+                                chapterSearchResults = emptyList()
+                            },
+                            minLines = 6,
+                            maxLines = 12,
                             label = { Text("章节内容") }
                         )
                         HorizontalDivider()
@@ -933,7 +977,7 @@ fun ReaderScaffold(
                             value = chapterSearchValue,
                             onValueChange = {
                                 chapterSearchValue = it
-                                chapterSearchResultCount = -1
+                                chapterSearchResults = emptyList()
                             },
                             modifier = Modifier.fillMaxWidth(),
                             label = { Text("搜索内容") },
@@ -954,23 +998,52 @@ fun ReaderScaffold(
                             Text("正则表达式")
                             TextButton(onClick = {
                                 chapterUseRegex = !chapterUseRegex
-                                chapterSearchResultCount = -1
+                                chapterSearchResults = emptyList()
                             }) {
                                 Text(if (chapterUseRegex) "已开启" else "已关闭")
                             }
                         }
-                        if (chapterSearchResultCount > 0) {
+                        if (chapterSearchResults.isNotEmpty()) {
                             Text(
-                                "找到 ${chapterSearchResultCount} 处匹配",
+                                "找到 ${chapterSearchResults.size} 处匹配，点击替换",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.primary
                             )
+                            LazyColumn(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = 200.dp)
+                            ) {
+                                items(chapterSearchResults) { result ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 2.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "${result.index + 1}. ${result.preview}",
+                                            modifier = Modifier.weight(1f),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            maxLines = 2
+                                        )
+                                        TextButton(
+                                            onClick = { replaceOneInChapter(result) },
+                                            contentPadding = PaddingValues(horizontal = 8.dp)
+                                        ) {
+                                            Text("替换", color = MaterialTheme.colorScheme.tertiary)
+                                        }
+                                    }
+                                }
+                            }
                         }
                         editingError?.let { msg ->
                             Text(
                                 msg,
                                 style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.error
+                                color = if (msg.startsWith("已替换")) MaterialTheme.colorScheme.primary
+                                       else MaterialTheme.colorScheme.error
                             )
                         }
                     }
@@ -982,8 +1055,10 @@ fun ReaderScaffold(
                         TextButton(onClick = { searchInChapter() }) {
                             Text("搜索")
                         }
-                        TextButton(onClick = { replaceInChapter() }) {
-                            Text("全部替换", color = MaterialTheme.colorScheme.tertiary)
+                        if (chapterSearchResults.isNotEmpty()) {
+                            TextButton(onClick = { replaceAllInChapter() }) {
+                                Text("全部替换", color = MaterialTheme.colorScheme.tertiary)
+                            }
                         }
                         Button(onClick = {
                             saveEditedChapter(editingValue)
@@ -1700,6 +1775,14 @@ private data class SearchResult(
     val index: Int,
     val charIndex: Int,
     val chapter: String,
+    val preview: String
+)
+
+private data class ChapterMatchResult(
+    val index: Int,
+    val start: Int,
+    val end: Int,
+    val matched: String,
     val preview: String
 )
 
