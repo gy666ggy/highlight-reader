@@ -200,6 +200,11 @@ fun ReaderScaffold(
     var editingEndIndex by remember { mutableIntStateOf(-1) }
     var editingValue by remember { mutableStateOf("") }
     var editingError by remember { mutableStateOf<String?>(null) }
+    // 本章搜索替换状态
+    var chapterSearchValue by remember { mutableStateOf("") }
+    var chapterReplaceValue by remember { mutableStateOf("") }
+    var chapterUseRegex by remember { mutableStateOf(false) }
+    var chapterSearchResultCount by remember { mutableIntStateOf(-1) }
     var searchDialogVisible by remember { mutableStateOf(false) }
     var searchValue by remember { mutableStateOf("") }
     var searchReplaceValue by remember { mutableStateOf("") }
@@ -380,6 +385,56 @@ fun ReaderScaffold(
             .filterIsInstance<ReaderText.Text>()
             .joinToString("\n") { it.line.text }
         editingError = null
+        chapterSearchValue = ""
+        chapterReplaceValue = ""
+        chapterUseRegex = false
+        chapterSearchResultCount = -1
+    }
+
+    fun searchInChapter() {
+        val query = chapterSearchValue.trim()
+        if (query.isBlank()) {
+            chapterSearchResultCount = -1
+            editingError = null
+            return
+        }
+        val count = if (chapterUseRegex) {
+            runCatching {
+                Regex(query).findAll(editingValue).count()
+            }.getOrElse {
+                editingError = "正则表达式无效：${it.message}"
+                return
+            }
+        } else {
+            editingValue.split(query).size - 1
+        }
+        chapterSearchResultCount = count
+        editingError = if (count > 0) null else "本章未找到匹配内容"
+    }
+
+    fun replaceInChapter() {
+        val query = chapterSearchValue.trim()
+        val replacement = chapterReplaceValue
+        if (query.isBlank()) {
+            editingError = "请先输入搜索内容"
+            return
+        }
+        val replaced = if (chapterUseRegex) {
+            runCatching { Regex(query).replace(editingValue, replacement) }.getOrElse {
+                editingError = "正则表达式无效：${it.message}"
+                return
+            }
+        } else {
+            editingValue.replace(query, replacement)
+        }
+        if (replaced == editingValue) {
+            editingError = "本章未找到需要替换的内容"
+            chapterSearchResultCount = 0
+            return
+        }
+        editingValue = replaced
+        chapterSearchResultCount = -1
+        editingError = "已替换本章全部匹配内容"
     }
 
     fun saveEditedChapter(value: String) {
@@ -858,22 +913,84 @@ fun ReaderScaffold(
                 onDismissRequest = { editingStartIndex = -1 },
                 title = { Text("编辑当前章节") },
                 text = {
-                    OutlinedTextField(
-                        value = editingValue,
-                        onValueChange = { editingValue = it },
-                        minLines = 8,
-                        maxLines = 18,
-                        label = { Text("章节内容") }
-                    )
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = editingValue,
+                            onValueChange = { editingValue = it },
+                            minLines = 8,
+                            maxLines = 18,
+                            label = { Text("章节内容") }
+                        )
+                        HorizontalDivider()
+                        Text(
+                            "搜索替换（仅本章）",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        OutlinedTextField(
+                            value = chapterSearchValue,
+                            onValueChange = {
+                                chapterSearchValue = it
+                                chapterSearchResultCount = -1
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("搜索内容") },
+                            singleLine = true
+                        )
+                        OutlinedTextField(
+                            value = chapterReplaceValue,
+                            onValueChange = { chapterReplaceValue = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("替换为（留空则删除）") },
+                            singleLine = true
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("正则表达式")
+                            TextButton(onClick = {
+                                chapterUseRegex = !chapterUseRegex
+                                chapterSearchResultCount = -1
+                            }) {
+                                Text(if (chapterUseRegex) "已开启" else "已关闭")
+                            }
+                        }
+                        if (chapterSearchResultCount > 0) {
+                            Text(
+                                "找到 ${chapterSearchResultCount} 处匹配",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        editingError?.let { msg ->
+                            Text(
+                                msg,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    }
                 },
                 confirmButton = {
-                    Button(
-                        onClick = {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        TextButton(onClick = { searchInChapter() }) {
+                            Text("搜索")
+                        }
+                        TextButton(onClick = { replaceInChapter() }) {
+                            Text("全部替换", color = MaterialTheme.colorScheme.tertiary)
+                        }
+                        Button(onClick = {
                             saveEditedChapter(editingValue)
                             editingStartIndex = -1
+                        }) {
+                            Text("保存")
                         }
-                    ) {
-                        Text("保存")
                     }
                 },
                 dismissButton = {
