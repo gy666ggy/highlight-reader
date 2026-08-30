@@ -910,7 +910,13 @@ fun ReaderScaffold(
                 onParagraphColorChange = { key ->
                     val currentColors = paragraphHighlightColors.toMutableMap()
                     if (selectedModifyColor != null) {
-                        currentColors[key] = selectedModifyColor!!.toArgb()
+                        val newColor = selectedModifyColor!!.toArgb()
+                        if (currentColors[key] == newColor) {
+                            // 再次点击相同颜色 → 取消高亮
+                            currentColors.remove(key)
+                        } else {
+                            currentColors[key] = newColor
+                        }
                         persistParagraphColors(currentColors)
                     } else {
                         // 没有选颜色就弹出颜色选择器
@@ -1468,7 +1474,7 @@ fun ReaderScaffold(
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    "修改高亮模式已开启 - 先选择颜色，然后点击段落（仅引号内容变色）",
+                    "修改高亮模式 - 选颜色后点段落着色，再点一次取消（仅引号内容变色）",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.tertiary
                 )
