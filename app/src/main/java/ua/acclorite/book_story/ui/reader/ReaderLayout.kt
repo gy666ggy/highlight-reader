@@ -91,10 +91,10 @@ fun ReaderLayout(
     doubleClickTranslation: Boolean,
     isLoading: Boolean,
     showMenu: Boolean,
-    paragraphHighlightColors: Map<Int, Color> = emptyMap(),
-    paragraphTextKeys: Map<Int, Int> = emptyMap(),
+    paragraphHighlightColors: Map<Long, Color> = emptyMap(),
+    paragraphTextKeys: Map<Int, Long> = emptyMap(),
     modifyHighlightMode: Boolean = false,
-    onParagraphColorChange: (Int) -> Unit = {},
+    onParagraphColorChange: (Long) -> Unit = {},
     menuVisibility: (ReaderEvent.OnMenuVisibility) -> Unit,
     openShareApp: (ReaderEvent.OnOpenShareApp) -> Unit,
     openWebBrowser: (ReaderEvent.OnOpenWebBrowser) -> Unit,
@@ -194,7 +194,7 @@ fun ReaderLayout(
                         !images && (entry is ReaderText.Image || entry is ReaderText.HtmlMedia || previousEntry is ReaderText.Image || previousEntry is ReaderText.HtmlMedia) -> return@itemsIndexed
                         !imagesCaptions && (previousEntry is ReaderText.Image || previousEntry is ReaderText.HtmlMedia) -> return@itemsIndexed
                         else -> {
-                            val textKey = paragraphTextKeys[index] ?: index
+                            val textKey = paragraphTextKeys[index] ?: index.toLong()
                             SpacedItem(
                                 index = index,
                                 spacing = paragraphHeight

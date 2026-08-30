@@ -185,15 +185,32 @@ fun ReaderScaffold(
     var displayedText by remember(baseText, replacementRules) {
         mutableStateOf(baseText.applyReplacementRules(replacementRules))
     }
-    // 文本哈希键映射：列表索引 → 段落文本哈希值
-    // 使用原始文本(替换前)的哈希作为稳定标识，确保跨会话一致
-    val paragraphTextKeys = remember(baseText) {
+    // 段落唯一键映射：列表索引 → 段落唯一ID (Long类型)
+    // 使用"章节索引 * 1000000 + 章内文本段落序号"生成唯一键
+    // 确保每个段落有独立的颜色标识，即使文本相同也不会串色
+    val paragraphTextKeys: Map<Int, Long> = remember(baseText) {
+        var chapterIndex = 0
+        var paragraphInChapter = 0
         baseText.mapIndexed { index, entry ->
-            val hash = when (entry) {
-                is ReaderText.Text -> entry.line.text.hashCode()
-                else -> index
+            val key = when (entry) {
+                is ReaderText.Chapter -> {
+                    // 遇到新章节，章节索引+1，段内计数重置
+                    val k = (chapterIndex.toLong() shl 32) or (0xFFFFFFF0L) // 章节标题特殊标记
+                    chapterIndex++
+                    paragraphInChapter = 0
+                    k
+                }
+                is ReaderText.Text -> {
+                    val k = (chapterIndex.toLong() shl 32) or paragraphInChapter.toLong()
+                    paragraphInChapter++
+                    k
+                }
+                else -> {
+                    // 非文本元素用索引作为低位，避免冲突
+                    (chapterIndex.toLong() shl 32) or (0xFF000000L or index.toLong().and(0xFFFFFFL))
+                }
             }
-            index to hash
+            index to key
         }.toMap()
     }
     var editingStartIndex by remember { mutableIntStateOf(-1) }
@@ -227,7 +244,7 @@ fun ReaderScaffold(
     var bookmarkDialogVisible by remember { mutableStateOf(false) }
     var highlightColorDialogVisible by remember { mutableStateOf(false) }
     var paragraphHighlightColors by remember(book.id) {
-        mutableStateOf(loadParagraphColors(context, book.id, extraPrefs))
+        mutableStateOf<Map<Long, Int>>(loadParagraphColors(context, book.id, extraPrefs))
     }
     var modifyHighlightMode by remember { mutableStateOf(false) }
     var modifyHighlightColorDialogVisible by remember { mutableStateOf(false) }
@@ -362,7 +379,7 @@ fun ReaderScaffold(
             .apply()
     }
 
-    fun persistParagraphColors(colors: Map<Int, Int>) {
+    fun persistParagraphColors(colors: Map<Long, Int>) {
         paragraphHighlightColors = colors
         saveParagraphColors(context, book.id, colors)
     }
@@ -478,11 +495,18 @@ fun ReaderScaffold(
     fun saveEditedChapter(value: String) {
         if (editingStartIndex < 0 || editingEndIndex <= editingStartIndex) return
 
-        // === 颜色迁移：编辑前记录旧段落的哈希和颜色，编辑后迁移到新哈希 ===
-        // 仅处理编辑范围内的文本段落
-        val oldTexts = baseText.subList(editingStartIndex, editingEndIndex)
-            .filterIsInstance<ReaderText.Text>()
-            .map { it.line.text }
+        // === 颜色迁移：编辑前按位置记录旧段落的颜色，编辑后按位置迁移到新键 ===
+        // 找到编辑范围内所有文本段落的旧键和颜色
+        val oldTextKeys = mutableListOf<Long>()
+        for (i in editingStartIndex until editingEndIndex) {
+            val entry = baseText[i]
+            if (entry is ReaderText.Text) {
+                paragraphTextKeys[i]?.let { oldTextKeys.add(it) }
+            }
+        }
+        val oldColorsByPosition = oldTextKeys.mapIndexed { pos, key ->
+            pos to paragraphHighlightColors[key]
+        }.toMap()
 
         val updatedText = baseText.toMutableList()
         val newLines = value.lines().filter { it.isNotBlank() }
@@ -492,29 +516,56 @@ fun ReaderScaffold(
         updatedText.subList(editingStartIndex, editingEndIndex).clear()
         updatedText.addAll(editingStartIndex, replacement)
 
-        // 按位置匹配旧段落和新段落，把颜色从旧哈希迁移到新哈希
-        val newColors = paragraphHighlightColors.toMutableMap()
-        val minSize = minOf(oldTexts.size, newLines.size)
-        for (i in 0 until minSize) {
-            val oldHash = oldTexts[i].hashCode()
-            val newHash = newLines[i].hashCode()
-            if (oldHash != newHash) {
-                // 文本变了：把旧哈希的颜色迁移到新哈希
-                val color = newColors.remove(oldHash)
-                if (color != null) {
-                    newColors[newHash] = color
+        // 先更新 baseText，触发 paragraphTextKeys 重新计算
+        baseText = updatedText
+
+        // 注意：paragraphTextKeys 会因为 baseText 变化而自动重新计算
+        // 但此时 composition 还没重组，paragraphTextKeys 还是旧值
+        // 所以我们需要手动计算新的键
+        var chapterIndex = 0
+        var paragraphInChapter = 0
+        val newIndexToKey = updatedText.mapIndexed { index, entry ->
+            val key = when (entry) {
+                is ReaderText.Chapter -> {
+                    val k = (chapterIndex.toLong() shl 32) or (0xFFFFFFF0L)
+                    chapterIndex++
+                    paragraphInChapter = 0
+                    k
+                }
+                is ReaderText.Text -> {
+                    val k = (chapterIndex.toLong() shl 32) or paragraphInChapter.toLong()
+                    paragraphInChapter++
+                    k
+                }
+                else -> {
+                    (chapterIndex.toLong() shl 32) or (0xFF000000L or index.toLong().and(0xFFFFFFL))
                 }
             }
-            // 如果 oldHash == newHash，文本没变，颜色自然保留，无需处理
-        }
-        // 清理被删除段落的颜色（旧段落数量 > 新段落数量时，多出来的段落颜色清除）
-        if (oldTexts.size > newLines.size) {
-            for (i in newLines.size until oldTexts.size) {
-                newColors.remove(oldTexts[i].hashCode())
+            index to key
+        }.toMap()
+
+        // 收集编辑范围内新文本段落的键
+        val newTextKeys = mutableListOf<Long>()
+        for (i in editingStartIndex until editingStartIndex + replacement.size) {
+            if (updatedText[i] is ReaderText.Text) {
+                newIndexToKey[i]?.let { newTextKeys.add(it) }
             }
         }
 
-        baseText = updatedText
+        // 按位置迁移颜色
+        val newColors = paragraphHighlightColors.toMutableMap()
+        val minSize = minOf(oldTextKeys.size, newTextKeys.size)
+        for (i in 0 until minSize) {
+            val oldKey = oldTextKeys[i]
+            val newKey = newTextKeys[i]
+            val color = newColors.remove(oldKey)
+            if (color != null) {
+                newColors[newKey] = color
+            }
+        }
+        // 被删除的段落：旧键已经在上面 remove 了，无需额外处理
+        // 新增的段落：没有颜色，自然为空
+
         paragraphHighlightColors = newColors
         persistParagraphColors(newColors)
 
@@ -875,7 +926,7 @@ fun ReaderScaffold(
                 paragraphHighlightColors = paragraphHighlightColors.mapValues { Color(it.value) },
                 modifyHighlightMode = modifyHighlightMode,
                 paragraphTextKeys = paragraphTextKeys,
-                onParagraphColorChange = { textKey ->
+                onParagraphColorChange = { textKey: Long ->
                     selectedModifyColor?.let { color ->
                         val colorArgb = color.toArgb()
                         val newColors = paragraphHighlightColors.toMutableMap()
@@ -1921,19 +1972,20 @@ private fun findFileUriByPath(
 /**
  * 获取段落高亮颜色存储文件
  * 使用文件存储而非 SharedPreferences，确保永久可靠保存
- * v2: 使用文本哈希作为键，而非列表索引，确保跨会话稳定
+ * v3: 使用"章节索引+段内序号"作为唯一键(Long类型)，彻底解决相同文本串色问题
+ * v2: 使用文本哈希作为键(旧版，已废弃)
  */
 private fun getParagraphColorsFile(context: Context, bookId: Int): File {
     val dir = File(context.filesDir, "paragraph_colors")
     if (!dir.exists()) dir.mkdirs()
-    return File(dir, "book_${bookId}_v2.dat")
+    return File(dir, "book_${bookId}_v3.dat")
 }
 
 /**
  * 保存段落高亮颜色到文件（同步写入，确保立即落盘）
- * 格式：每行一个 "index:colorArgb"
+ * 格式：每行一个 "longKey:colorArgb"
  */
-private fun saveParagraphColors(context: Context, bookId: Int, colors: Map<Int, Int>) {
+private fun saveParagraphColors(context: Context, bookId: Int, colors: Map<Long, Int>) {
     val file = getParagraphColorsFile(context, bookId)
     runCatching {
         if (colors.isEmpty()) {
@@ -1942,18 +1994,17 @@ private fun saveParagraphColors(context: Context, bookId: Int, colors: Map<Int, 
             // 原子写入：先写临时文件再重命名，防止写入过程中断导致文件损坏
             val tempFile = File(file.parent, file.name + ".tmp")
             tempFile.bufferedWriter().use { writer ->
-                colors.entries.forEach { (index, color) ->
-                    writer.write("$index:$color\n")
+                colors.entries.forEach { (key, color) ->
+                    writer.write("$key:$color\n")
                 }
             }
             if (tempFile.renameTo(file)) {
-                // 写入成功，清理旧的 SharedPreferences 数据（迁移完成）
-                // 保留 SharedPreferences 作为备份，不删除
+                // 写入成功
             } else {
                 // 重命名失败，直接写原文件
                 file.bufferedWriter().use { writer ->
-                    colors.entries.forEach { (index, color) ->
-                        writer.write("$index:$color\n")
+                    colors.entries.forEach { (key, color) ->
+                        writer.write("$key:$color\n")
                     }
                 }
             }
@@ -1963,7 +2014,7 @@ private fun saveParagraphColors(context: Context, bookId: Int, colors: Map<Int, 
         val prefs = context.getSharedPreferences("reader_extra_$bookId", Context.MODE_PRIVATE)
         prefs.edit()
             .putString(
-                "paragraph_colors",
+                "paragraph_colors_v3",
                 if (colors.isEmpty()) "" else colors.entries.joinToString(",") { "${it.key}:${it.value}" }
             )
             .commit()
@@ -1972,23 +2023,24 @@ private fun saveParagraphColors(context: Context, bookId: Int, colors: Map<Int, 
 
 /**
  * 从文件加载段落高亮颜色
- * v2: 使用文本哈希作为键，不兼容旧版索引数据，旧数据会被忽略
+ * v3: 使用 Long 类型的唯一键（章节索引+段内序号）
+ * 旧版 v2 数据不兼容，直接忽略
  */
 private fun loadParagraphColors(
     context: Context,
     bookId: Int,
     @Suppress("UNUSED_PARAMETER") extraPrefs: android.content.SharedPreferences
-): Map<Int, Int> {
+): Map<Long, Int> {
     val file = getParagraphColorsFile(context, bookId)
 
-    // 从 v2 文件加载
+    // 从 v3 文件加载
     if (file.exists() && file.length() > 0) {
         return runCatching {
             file.bufferedReader().useLines { lines ->
                 lines.mapNotNull { line ->
                     val parts = line.trim().split(":")
                     if (parts.size == 2) {
-                        val key = parts[0].toIntOrNull()
+                        val key = parts[0].toLongOrNull()
                         val color = parts[1].toIntOrNull()
                         if (key != null && color != null) key to color else null
                     } else null
