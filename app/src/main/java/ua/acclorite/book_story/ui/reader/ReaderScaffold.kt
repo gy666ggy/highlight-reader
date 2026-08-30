@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.background
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -80,6 +81,7 @@ import ua.acclorite.book_story.presentation.reader.model.ReaderHorizontalGesture
 import ua.acclorite.book_story.presentation.reader.model.ReaderTextAlignment
 import ua.acclorite.book_story.presentation.settings.SettingsEvent
 import ua.acclorite.book_story.ui.common.components.common.AnimatedVisibility
+import ua.acclorite.book_story.ui.common.helpers.noRippleClickable
 import ua.acclorite.book_story.ui.reader.model.FontWithName
 import ua.acclorite.book_story.ui.theme.model.HorizontalAlignment
 import java.io.File
@@ -167,8 +169,10 @@ fun ReaderScaffold(
     val globalPrefs = remember {
         context.getSharedPreferences("reader_global_tools", Context.MODE_PRIVATE)
     }
-    var baseText by remember(text) {
+    var baseText by remember(book.id) {
         // 加载编辑章节缓存并应用
+        // 使用 book.id 作为 key，确保只有切换书籍时才重新加载
+        // 避免因为 text 引用变化导致编辑内容丢失
         val editedChapters = loadEditedChapters(context, book.id)
         mutableStateOf(text.applyEditedChapters(editedChapters))
     }
@@ -806,6 +810,29 @@ fun ReaderScaffold(
 
         baseText = updatedText
         searchResults = emptyList()
+
+        // 更新编辑缓存（所有格式都持久化，确保替换内容不会丢失）
+        run {
+            val newCache = editedChapterCache.toMutableMap()
+            var chapterIndex = -1
+            var currentParagraphs = mutableListOf<String>()
+            for (entry in updatedText) {
+                if (entry is ReaderText.Chapter) {
+                    if (chapterIndex >= 0 && currentParagraphs.isNotEmpty()) {
+                        newCache[chapterIndex] = currentParagraphs
+                    }
+                    chapterIndex++
+                    currentParagraphs = mutableListOf()
+                } else if (entry is ReaderText.Text) {
+                    currentParagraphs.add(entry.line.text)
+                }
+            }
+            if (chapterIndex >= 0 && currentParagraphs.isNotEmpty()) {
+                newCache[chapterIndex] = currentParagraphs
+            }
+            editedChapterCache = newCache
+            saveEditedChapters(context, book.id, newCache)
+        }
 
         // 保存到原文件
         if (book.filePath.endsWith(".txt", ignoreCase = true)) {
