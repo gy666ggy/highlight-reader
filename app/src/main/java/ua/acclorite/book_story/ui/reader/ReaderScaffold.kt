@@ -167,7 +167,11 @@ fun ReaderScaffold(
     val globalPrefs = remember {
         context.getSharedPreferences("reader_global_tools", Context.MODE_PRIVATE)
     }
-    var baseText by remember(text) { mutableStateOf(text) }
+    var baseText by remember(text) {
+        // 加载编辑章节缓存并应用
+        val editedChapters = loadEditedChapters(context, book.id)
+        mutableStateOf(text.applyEditedChapters(editedChapters))
+    }
     var replacementRules by remember {
         mutableStateOf(globalPrefs.getString("replacement_rules", "").orEmpty())
     }
@@ -245,6 +249,10 @@ fun ReaderScaffold(
     var highlightColorDialogVisible by remember { mutableStateOf(false) }
     var paragraphHighlightColors by remember(book.id) {
         mutableStateOf<Map<Long, Int>>(loadParagraphColors(context, book.id, extraPrefs))
+    }
+    // 编辑章节缓存：chapterIndex -> 段落文本列表
+    var editedChapterCache by remember(book.id) {
+        mutableStateOf(loadEditedChapters(context, book.id))
     }
     var modifyHighlightMode by remember { mutableStateOf(false) }
     var modifyHighlightColorDialogVisible by remember { mutableStateOf(false) }
@@ -633,6 +641,12 @@ fun ReaderScaffold(
         paragraphHighlightColors = newColors
         persistParagraphColors(newColors)
 
+        // 保存编辑章节到缓存（所有格式都持久化）
+        val newCache = editedChapterCache.toMutableMap()
+        newCache[targetChapterIndex] = newLines
+        editedChapterCache = newCache
+        saveEditedChapters(context, book.id, newCache)
+
         if (book.filePath.endsWith(".txt", ignoreCase = true)) {
             editingError = "正在保存到手机原 TXT 文件…"
             coroutineScope.launch {
@@ -651,12 +665,12 @@ fun ReaderScaffold(
                     }
                 }
                 editingError = result.fold(
-                    onSuccess = { "已保存并替换手机里的原 TXT 文件。" },
+                    onSuccess = { "已保存并替换手机里的原 TXT 文件（本地也有缓存）。" },
                     onFailure = { "TXT 原文件保存失败：${it.message ?: "未知错误"}。如果这本书是旧导入的，请重新从手机文件夹导入一次，让 App 获取写入权限。" }
                 )
             }
         } else {
-            editingError = "本章内容已在当前阅读界面更新；直接写回原文件目前只支持 TXT。"
+            editingError = "已保存编辑内容（本地缓存），下次打开仍然有效。"
         }
     }
 
@@ -2039,6 +2053,139 @@ private fun findFileUriByPath(
  * v3: 使用"章节索引+段内序号"作为唯一键(Long类型)，彻底解决相同文本串色问题
  * v2: 使用文本哈希作为键(旧版，已废弃)
  */
+/**
+ * 获取编辑章节缓存文件
+ * 格式：每行一个 "chapterIndex:text"，text用Base64编码
+ * 用于持久化用户编辑过的章节内容，支持所有格式（TXT/EPUB等）
+ */
+private fun getEditedChaptersFile(context: Context, bookId: Int): File {
+    val dir = File(context.filesDir, "edited_chapters")
+    if (!dir.exists()) dir.mkdirs()
+    return File(dir, "book_${bookId}_v1.dat")
+}
+
+/**
+ * 保存编辑过的章节到缓存文件
+ * 传入 chapterIndex -> 章节文本列表（按段落）的映射
+ */
+private fun saveEditedChapters(
+    context: Context,
+    bookId: Int,
+    editedChapters: Map<Int, List<String>>
+) {
+    val file = getEditedChaptersFile(context, bookId)
+    runCatching {
+        if (editedChapters.isEmpty()) {
+            file.delete()
+        } else {
+            val tempFile = File(file.parent, file.name + ".tmp")
+            tempFile.bufferedWriter().use { writer ->
+                editedChapters.forEach { (chapterIndex, paragraphs) ->
+                    val encoded = android.util.Base64.encodeToString(
+                        paragraphs.joinToString("\n").toByteArray(),
+                        android.util.Base64.NO_WRAP
+                    )
+                    writer.write("$chapterIndex:$encoded\n")
+                }
+            }
+            if (!tempFile.renameTo(file)) {
+                file.bufferedWriter().use { writer ->
+                    editedChapters.forEach { (chapterIndex, paragraphs) ->
+                        val encoded = android.util.Base64.encodeToString(
+                            paragraphs.joinToString("\n").toByteArray(),
+                            android.util.Base64.NO_WRAP
+                        )
+                        writer.write("$chapterIndex:$encoded\n")
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * 从缓存文件加载编辑过的章节
+ * 返回 chapterIndex -> 段落文本列表 的映射
+ */
+private fun loadEditedChapters(context: Context, bookId: Int): Map<Int, List<String>> {
+    val file = getEditedChaptersFile(context, bookId)
+    if (!file.exists() || file.length() <= 0) return emptyMap()
+    return runCatching {
+        file.bufferedReader().useLines { lines ->
+            lines.mapNotNull { line ->
+                val idx = line.indexOf(':')
+                if (idx < 0) return@mapNotNull null
+                val chapterIndex = line.substring(0, idx).toIntOrNull() ?: return@mapNotNull null
+                val encoded = line.substring(idx + 1)
+                val decoded = try {
+                    String(android.util.Base64.decode(encoded, android.util.Base64.NO_WRAP))
+                } catch (_: Exception) {
+                    return@mapNotNull null
+                }
+                val paragraphs = decoded.split("\n").filter { it.isNotBlank() }
+                if (paragraphs.isEmpty()) null else chapterIndex to paragraphs
+            }.toMap()
+        }
+    }.getOrElse { emptyMap() }
+}
+
+/**
+ * 将编辑章节缓存应用到 baseText 上
+ */
+/**
+ * 将编辑章节缓存应用到文本列表上
+ * 用编辑缓存重建文本列表，替换对应章节的内容
+ */
+private fun List<ReaderText>.applyEditedChapters(
+    editedChapters: Map<Int, List<String>>
+): List<ReaderText> {
+    if (editedChapters.isEmpty()) return this
+
+    // 第一步：找到所有章节的起止位置
+    val chapterRanges = mutableListOf<Pair<Int, Int>>() // startIndex, endIndex
+    var currentStart = -1
+    for (i in this.indices) {
+        if (this[i] is ReaderText.Chapter) {
+            if (currentStart >= 0) {
+                chapterRanges.add(currentStart to i)
+            }
+            currentStart = i
+        }
+    }
+    if (currentStart >= 0) {
+        chapterRanges.add(currentStart to this.size)
+    }
+
+    // 第二步：逐章构建
+    val result = mutableListOf<ReaderText>()
+    for ((chapIdx, range) in chapterRanges.withIndex()) {
+        val (start, end) = range
+        val chapterEntry = this[start]
+        result.add(chapterEntry)
+
+        val editedParagraphs = editedChapters[chapIdx]
+        if (editedParagraphs != null) {
+            // 有编辑缓存：直接用缓存的段落
+            editedParagraphs.forEach {
+                result.add(ReaderText.Text(AnnotatedString(it)))
+            }
+        } else {
+            // 没有编辑缓存：用原内容（跳过章节标题）
+            for (i in start + 1 until end) {
+                result.add(this[i])
+            }
+        }
+    }
+
+    // 如果第一章前有内容（理论上不应该有），保留
+    if (chapterRanges.isNotEmpty() && chapterRanges[0].first > 0) {
+        val prefix = this.subList(0, chapterRanges[0].first)
+        result.addAll(0, prefix)
+    }
+
+    return result
+}
+
 private fun getParagraphColorsFile(context: Context, bookId: Int): File {
     val dir = File(context.filesDir, "paragraph_colors")
     if (!dir.exists()) dir.mkdirs()
