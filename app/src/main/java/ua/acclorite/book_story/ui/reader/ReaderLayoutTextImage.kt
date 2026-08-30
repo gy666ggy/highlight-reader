@@ -53,7 +53,7 @@ fun LazyItemScope.ReaderLayoutTextImage(
                     .build(),
                 modifier = Modifier
                     .clip(RoundedCornerShape(imagesCornersRoundness))
-                    .fillMaxWidth(imagesWidth),
+                    .fillMaxWidth(),
                 contentDescription = null,
                 contentScale = ContentScale.FillWidth
             )
@@ -61,7 +61,7 @@ fun LazyItemScope.ReaderLayoutTextImage(
             Image(
                 modifier = Modifier
                     .clip(RoundedCornerShape(imagesCornersRoundness))
-                    .fillMaxWidth(imagesWidth),
+                    .fillMaxWidth(),
                 bitmap = entry.imageBitmap!!,
                 contentDescription = null,
                 colorFilter = imagesColorEffects,
