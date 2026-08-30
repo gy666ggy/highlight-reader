@@ -174,9 +174,10 @@ fun ReaderScaffold(
         // 使用 book.id 作为 key，切换书籍时重置为空
         mutableStateOf<List<ReaderText>>(emptyList())
     }
-    // 文本首次加载完成后，应用编辑缓存初始化 baseText
-    // 之后不再随 text 引用变化而重置，避免编辑内容丢失
-    LaunchedEffect(book.id, text.isNotEmpty()) {
+    // 文本加载完成后，应用编辑缓存初始化 baseText
+    // 使用 text.size 作为 key，确保文本内容变化时能检测到
+    // 只有 baseText 为空时才初始化，之后不再随 text 变化而重置，避免编辑内容丢失
+    LaunchedEffect(book.id, text.size) {
         if (text.isNotEmpty() && baseText.isEmpty()) {
             val editedChapters = loadEditedChapters(context, book.id)
             baseText = text.applyEditedChapters(editedChapters)
@@ -2208,31 +2209,81 @@ private fun getEditHistoryFile(context: Context, bookId: Int): File {
  * 返回 chapterIndex -> List<Pair<timestamp, content>> 的映射
  */
 private fun loadEditHistory(context: Context, bookId: Int): Map<Int, List<Pair<Long, String>>> {
+    // 先试文件
     val file = getEditHistoryFile(context, bookId)
-    if (!file.exists() || file.length() <= 0) return emptyMap()
+    if (file.exists() && file.length() > 0) {
+        val fileResult = runCatching {
+            val result = mutableMapOf<Int, MutableList<Pair<Long, String>>>()
+            file.bufferedReader().useLines { lines ->
+                lines.forEach { line ->
+                    val parts = line.split("|", limit = 3)
+                    if (parts.size < 3) return@forEach
+                    val chapterIndex = parts[0].toIntOrNull() ?: return@forEach
+                    val timestamp = parts[1].toLongOrNull() ?: return@forEach
+                    val content = try {
+                        String(android.util.Base64.decode(parts[2], android.util.Base64.NO_WRAP))
+                    } catch (_: Exception) { return@forEach }
+                    result.getOrPut(chapterIndex) { mutableListOf() }.add(timestamp to content)
+                }
+            }
+            result.forEach { (_, list) -> list.sortByDescending { it.first } }
+            result
+        }.getOrNull()
+        if (!fileResult.isNullOrEmpty()) {
+            return fileResult
+        }
+    }
+
+    // 文件加载失败，尝试 SharedPreferences 备份
+    val prefs = context.getSharedPreferences("reader_extra_$bookId", Context.MODE_PRIVATE)
+    val raw = prefs.getString("edit_history_backup", "") ?: ""
+    if (raw.isBlank()) return emptyMap()
     return runCatching {
         val result = mutableMapOf<Int, MutableList<Pair<Long, String>>>()
-        file.bufferedReader().useLines { lines ->
-            lines.forEach { line ->
-                val parts = line.split("|", limit = 3)
-                if (parts.size < 3) return@forEach
-                val chapterIndex = parts[0].toIntOrNull() ?: return@forEach
-                val timestamp = parts[1].toLongOrNull() ?: return@forEach
-                val content = try {
-                    String(android.util.Base64.decode(parts[2], android.util.Base64.NO_WRAP))
-                } catch (_: Exception) { return@forEach }
-                result.getOrPut(chapterIndex) { mutableListOf() }.add(timestamp to content)
-            }
+        raw.split("||").forEach { entry ->
+            val parts = entry.split("|", limit = 3)
+            if (parts.size < 3) return@forEach
+            val chapterIndex = parts[0].toIntOrNull() ?: return@forEach
+            val timestamp = parts[1].toLongOrNull() ?: return@forEach
+            val content = try {
+                String(android.util.Base64.decode(parts[2], android.util.Base64.NO_WRAP))
+            } catch (_: Exception) { return@forEach }
+            result.getOrPut(chapterIndex) { mutableListOf() }.add(timestamp to content)
         }
-        // 按时间倒序排列
         result.forEach { (_, list) -> list.sortByDescending { it.first } }
         result
     }.getOrElse { emptyMap() }
 }
 
 /**
+ * 保存编辑历史到 SharedPreferences 备份
+ */
+private fun saveEditHistoryToPrefs(
+    context: Context,
+    bookId: Int,
+    history: Map<Int, List<Pair<Long, String>>>
+) {
+    val prefs = context.getSharedPreferences("reader_extra_$bookId", Context.MODE_PRIVATE)
+    if (history.isEmpty()) {
+        prefs.edit().remove("edit_history_backup").apply()
+        return
+    }
+    val raw = history.entries.flatMap { (chapIdx, list) ->
+        list.map { (ts, text) ->
+            val encoded = android.util.Base64.encodeToString(
+                text.toByteArray(),
+                android.util.Base64.NO_WRAP
+            )
+            "$chapIdx|$ts|$encoded"
+        }
+    }.joinToString("||")
+    prefs.edit().putString("edit_history_backup", raw).apply()
+}
+
+/**
  * 追加一条编辑历史记录
  * 如果该章历史超过 MAX_HISTORY_PER_CHAPTER 条，删除最旧的
+ * 双重保险：文件 + SharedPreferences 备份
  */
 private fun addEditHistory(
     context: Context,
@@ -2249,7 +2300,10 @@ private fun addEditHistory(
     }
     currentHistory[chapterIndex] = list
 
-    // 写回文件
+    // 第一重：SharedPreferences 备份
+    saveEditHistoryToPrefs(context, bookId, currentHistory)
+
+    // 第二重：写回文件
     val file = getEditHistoryFile(context, bookId)
     runCatching {
         val tempFile = File(file.parent, file.name + ".tmp")
@@ -2263,6 +2317,7 @@ private fun addEditHistory(
                     writer.write("$chapIdx|$ts|$encoded\n")
                 }
             }
+            writer.flush()
         }
         if (!tempFile.renameTo(file)) {
             file.bufferedWriter().use { writer ->
@@ -2275,6 +2330,7 @@ private fun addEditHistory(
                         writer.write("$chapIdx|$ts|$encoded\n")
                     }
                 }
+                writer.flush()
             }
         }
     }
@@ -2292,19 +2348,68 @@ private fun getEditedChaptersFile(context: Context, bookId: Int): File {
 }
 
 /**
- * 保存编辑过的章节到缓存文件
+ * 从 SharedPreferences 备份加载编辑章节
+ */
+private fun loadEditedChaptersFromPrefs(context: Context, bookId: Int): Map<Int, List<String>> {
+    val prefs = context.getSharedPreferences("reader_extra_$bookId", Context.MODE_PRIVATE)
+    val raw = prefs.getString("edited_chapters_backup", "") ?: ""
+    if (raw.isBlank()) return emptyMap()
+    return runCatching {
+        raw.split("||").mapNotNull { entry ->
+            val idx = entry.indexOf(':')
+            if (idx < 0) return@mapNotNull null
+            val chapterIndex = entry.substring(0, idx).toIntOrNull() ?: return@mapNotNull null
+            val encoded = entry.substring(idx + 1)
+            val decoded = try {
+                String(android.util.Base64.decode(encoded, android.util.Base64.NO_WRAP))
+            } catch (_: Exception) {
+                return@mapNotNull null
+            }
+            val paragraphs = decoded.split("\n").filter { it.isNotBlank() }
+            if (paragraphs.isEmpty()) null else chapterIndex to paragraphs
+        }.toMap()
+    }.getOrElse { emptyMap() }
+}
+
+/**
+ * 保存编辑章节到 SharedPreferences 备份
+ */
+private fun saveEditedChaptersToPrefs(context: Context, bookId: Int, editedChapters: Map<Int, List<String>>) {
+    val prefs = context.getSharedPreferences("reader_extra_$bookId", Context.MODE_PRIVATE)
+    if (editedChapters.isEmpty()) {
+        prefs.edit().remove("edited_chapters_backup").apply()
+        return
+    }
+    val raw = editedChapters.entries.joinToString("||") { (chapterIndex, paragraphs) ->
+        val encoded = android.util.Base64.encodeToString(
+            paragraphs.joinToString("\n").toByteArray(),
+            android.util.Base64.NO_WRAP
+        )
+        "$chapterIndex:$encoded"
+    }
+    prefs.edit().putString("edited_chapters_backup", raw).apply()
+}
+
+/**
+ * 保存编辑过的章节到缓存文件（三重保险：文件 + SharedPreferences + 同步写入）
  * 传入 chapterIndex -> 章节文本列表（按段落）的映射
  */
 private fun saveEditedChapters(
     context: Context,
     bookId: Int,
     editedChapters: Map<Int, List<String>>
-) {
+): Boolean {
+    // 第一重：SharedPreferences 备份（最可靠）
+    saveEditedChaptersToPrefs(context, bookId, editedChapters)
+
+    // 第二重：文件缓存
     val file = getEditedChaptersFile(context, bookId)
-    runCatching {
+    val fileResult = runCatching {
         if (editedChapters.isEmpty()) {
             file.delete()
+            true
         } else {
+            // 原子写入：先写临时文件再重命名
             val tempFile = File(file.parent, file.name + ".tmp")
             tempFile.bufferedWriter().use { writer ->
                 editedChapters.forEach { (chapterIndex, paragraphs) ->
@@ -2314,8 +2419,10 @@ private fun saveEditedChapters(
                     )
                     writer.write("$chapterIndex:$encoded\n")
                 }
+                writer.flush()
             }
             if (!tempFile.renameTo(file)) {
+                // 重命名失败，直接写原文件
                 file.bufferedWriter().use { writer ->
                     editedChapters.forEach { (chapterIndex, paragraphs) ->
                         val encoded = android.util.Base64.encodeToString(
@@ -2324,36 +2431,53 @@ private fun saveEditedChapters(
                         )
                         writer.write("$chapterIndex:$encoded\n")
                     }
+                    writer.flush()
                 }
             }
+            true
         }
-    }
+    }.getOrElse { false }
+
+    return fileResult || editedChapters.isEmpty() || loadEditedChaptersFromPrefs(context, bookId).isNotEmpty()
 }
 
 /**
- * 从缓存文件加载编辑过的章节
+ * 从缓存加载编辑过的章节（三重保险：先试文件，失败则用 SharedPreferences 备份）
  * 返回 chapterIndex -> 段落文本列表 的映射
  */
 private fun loadEditedChapters(context: Context, bookId: Int): Map<Int, List<String>> {
+    // 先试文件缓存
     val file = getEditedChaptersFile(context, bookId)
-    if (!file.exists() || file.length() <= 0) return emptyMap()
-    return runCatching {
-        file.bufferedReader().useLines { lines ->
-            lines.mapNotNull { line ->
-                val idx = line.indexOf(':')
-                if (idx < 0) return@mapNotNull null
-                val chapterIndex = line.substring(0, idx).toIntOrNull() ?: return@mapNotNull null
-                val encoded = line.substring(idx + 1)
-                val decoded = try {
-                    String(android.util.Base64.decode(encoded, android.util.Base64.NO_WRAP))
-                } catch (_: Exception) {
-                    return@mapNotNull null
-                }
-                val paragraphs = decoded.split("\n").filter { it.isNotBlank() }
-                if (paragraphs.isEmpty()) null else chapterIndex to paragraphs
-            }.toMap()
+    if (file.exists() && file.length() > 0) {
+        val fileResult = runCatching {
+            file.bufferedReader().useLines { lines ->
+                lines.mapNotNull { line ->
+                    val idx = line.indexOf(':')
+                    if (idx < 0) return@mapNotNull null
+                    val chapterIndex = line.substring(0, idx).toIntOrNull() ?: return@mapNotNull null
+                    val encoded = line.substring(idx + 1)
+                    val decoded = try {
+                        String(android.util.Base64.decode(encoded, android.util.Base64.NO_WRAP))
+                    } catch (_: Exception) {
+                        return@mapNotNull null
+                    }
+                    val paragraphs = decoded.split("\n").filter { it.isNotBlank() }
+                    if (paragraphs.isEmpty()) null else chapterIndex to paragraphs
+                }.toMap()
+            }
+        }.getOrNull()
+        if (!fileResult.isNullOrEmpty()) {
+            return fileResult
         }
-    }.getOrElse { emptyMap() }
+    }
+
+    // 文件加载失败，用 SharedPreferences 备份
+    val prefsResult = loadEditedChaptersFromPrefs(context, bookId)
+    if (prefsResult.isNotEmpty()) {
+        // 恢复文件缓存
+        saveEditedChapters(context, bookId, prefsResult)
+    }
+    return prefsResult
 }
 
 /**
