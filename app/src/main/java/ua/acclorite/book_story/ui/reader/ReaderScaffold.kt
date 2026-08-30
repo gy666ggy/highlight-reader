@@ -52,7 +52,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -171,17 +170,13 @@ fun ReaderScaffold(
         context.getSharedPreferences("reader_global_tools", Context.MODE_PRIVATE)
     }
     var baseText by remember(book.id) {
-        // 使用 book.id 作为 key，切换书籍时重置为空
         mutableStateOf<List<ReaderText>>(emptyList())
     }
-    // 文本加载完成后，应用编辑缓存初始化 baseText
-    // 使用 text.size 作为 key，确保文本内容变化时能检测到
-    // 只有 baseText 为空时才初始化，之后不再随 text 变化而重置，避免编辑内容丢失
-    LaunchedEffect(book.id, text.size) {
-        if (text.isNotEmpty() && baseText.isEmpty()) {
-            val editedChapters = loadEditedChapters(context, book.id)
-            baseText = text.applyEditedChapters(editedChapters)
-        }
+    // 当原始 text 加载完成后，如果 baseText 还是空的，就用 text + 编辑缓存初始化
+    // 之后 baseText 由本地编辑管理，不再受 text 引用变化影响
+    if (text.isNotEmpty() && baseText.isEmpty()) {
+        val editedChapters = loadEditedChapters(context, book.id)
+        baseText = text.applyEditedChapters(editedChapters)
     }
     var replacementRules by remember {
         mutableStateOf(globalPrefs.getString("replacement_rules", "").orEmpty())
@@ -679,7 +674,19 @@ fun ReaderScaffold(
         val newCache = editedChapterCache.toMutableMap()
         newCache[targetChapterIndex] = newLines
         editedChapterCache = newCache
-        saveEditedChapters(context, book.id, newCache)
+        val saveOk = saveEditedChapters(context, book.id, newCache)
+
+        // 验证保存是否成功：立即读回来检查
+        val verify = loadEditedChapters(context, book.id)
+        val verifyOk = verify[targetChapterIndex]?.let { saved ->
+            saved.size == newLines.size && saved.joinToString("\n") == newLines.joinToString("\n")
+        } ?: false
+
+        editingError = if (saveOk && verifyOk) {
+            "已保存到本地缓存（${newLines.size}段）。"
+        } else {
+            "保存可能失败！saveOk=$saveOk, verifyOk=$verifyOk, chapters=${verify.size}"
+        }
 
         if (book.filePath.endsWith(".txt", ignoreCase = true)) {
             editingError = "正在保存到手机原 TXT 文件…"
