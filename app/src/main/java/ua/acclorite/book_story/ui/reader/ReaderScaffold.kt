@@ -585,6 +585,15 @@ fun ReaderScaffold(
         // 整体迁移颜色
         val newColors = paragraphHighlightColors.toMutableMap()
 
+        // 防御性检查：如果没有找到有效文本段落，跳过颜色迁移
+        if (editStartTextIndex < 0 || newEditStartTextIndex < 0 ||
+            oldChapterTextKeys.isEmpty() || newChapterTextKeys.isEmpty()) {
+            baseText = updatedText
+            paragraphHighlightColors = newColors
+            persistParagraphColors(newColors)
+            return
+        }
+
         // 1. 编辑范围内：按位置一对一迁移
         val oldEditCount = editEndTextIndex - editStartTextIndex
         val newEditCount = newEditEndTextIndex - newEditStartTextIndex
@@ -606,12 +615,14 @@ fun ReaderScaffold(
         val oldAfterCount = oldChapterTextKeys.size - editEndTextIndex
         val newAfterCount = newChapterTextKeys.size - newEditEndTextIndex
         val minAfterSize = minOf(oldAfterCount, newAfterCount)
-        for (i in 0 until minAfterSize) {
-            val oldKey = oldChapterTextKeys[editEndTextIndex + i]
-            val newKey = newChapterTextKeys[newEditEndTextIndex + i]
-            val color = newColors.remove(oldKey)
-            if (color != null) {
-                newColors[newKey] = color
+        if (minAfterSize > 0 && editEndTextIndex >= 0 && newEditEndTextIndex >= 0) {
+            for (i in 0 until minAfterSize) {
+                val oldKey = oldChapterTextKeys[editEndTextIndex + i]
+                val newKey = newChapterTextKeys[newEditEndTextIndex + i]
+                val color = newColors.remove(oldKey)
+                if (color != null) {
+                    newColors[newKey] = color
+                }
             }
         }
 
