@@ -176,20 +176,6 @@ fun ReaderBottomBar(
         )
         val renderOrder = if (buttonOrder.isNotEmpty()) buttonOrder else defaultOrder
 
-        val buttonRenderers: Map<String, @Composable () -> Unit> = mapOf(
-            "chapters" to { BottomAction("目录", enabled = !lockMenu, onClick = showChapters) },
-            "bookmark" to { BottomAction("书签", enabled = !lockMenu, onClick = toggleBookmark) },
-            "nextBookmark" to { BottomAction("去书签", enabled = !lockMenu, onClick = nextBookmark) },
-            "search" to { BottomAction("搜索", enabled = !lockMenu, onClick = search) },
-            "replace" to { BottomAction("替换", enabled = !lockMenu, onClick = replaceRules) },
-            "chapterReplace" to { BottomAction("本章替换", enabled = !lockMenu, onClick = chapterReplace) },
-            "editChapter" to { BottomAction("编辑本章", enabled = !lockMenu, onClick = editChapter) },
-            "highlightColor" to { BottomAction("高亮色", enabled = !lockMenu, onClick = highlightColor) },
-            "modifyHighlight" to { BottomAction("修改高亮", enabled = !lockMenu, active = modifyHighlightActive, onClick = modifyHighlight) },
-            "sort" to { BottomAction("排序", enabled = !lockMenu, onClick = sortButtons) },
-            "settings" to { BottomAction("设置", enabled = !lockMenu, onClick = showSettings) }
-        )
-
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -198,7 +184,19 @@ fun ReaderBottomBar(
             verticalAlignment = Alignment.CenterVertically
         ) {
             renderOrder.forEach { btnId ->
-                buttonRenderers[btnId]?.invoke()
+                when (btnId) {
+                    "chapters" -> BottomAction("目录", enabled = !lockMenu, onClick = showChapters)
+                    "bookmark" -> BottomAction("书签", enabled = !lockMenu, onClick = toggleBookmark)
+                    "nextBookmark" -> BottomAction("去书签", enabled = !lockMenu, onClick = nextBookmark)
+                    "search" -> BottomAction("搜索", enabled = !lockMenu, onClick = search)
+                    "replace" -> BottomAction("替换", enabled = !lockMenu, onClick = replaceRules)
+                    "chapterReplace" -> BottomAction("本章替换", enabled = !lockMenu, onClick = chapterReplace)
+                    "editChapter" -> BottomAction("编辑本章", enabled = !lockMenu, onClick = editChapter)
+                    "highlightColor" -> BottomAction("高亮色", enabled = !lockMenu, onClick = highlightColor)
+                    "modifyHighlight" -> BottomAction("修改高亮", enabled = !lockMenu, active = modifyHighlightActive, onClick = modifyHighlight)
+                    "sort" -> BottomAction("排序", enabled = !lockMenu, onClick = sortButtons)
+                    "settings" -> BottomAction("设置", enabled = !lockMenu, onClick = showSettings)
+                }
             }
         }
     }
