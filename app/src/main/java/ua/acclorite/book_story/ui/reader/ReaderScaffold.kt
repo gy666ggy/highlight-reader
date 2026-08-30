@@ -221,6 +221,11 @@ fun ReaderScaffold(
     var editingEndIndex by remember { mutableIntStateOf(-1) }
     var editingValue by remember { mutableStateOf("") }
     var editingError by remember { mutableStateOf<String?>(null) }
+    // 编辑历史状态
+    var editHistoryDialogVisible by remember { mutableStateOf(false) }
+    var currentEditHistory by remember(book.id) {
+        mutableStateOf(loadEditHistory(context, book.id))
+    }
     // 本章替换状态
     var chapterReplaceDialogVisible by remember { mutableStateOf(false) }
     var chapterSearchValue by remember { mutableStateOf("") }
@@ -637,9 +642,27 @@ fun ReaderScaffold(
         // 4. 如果段落减少了，多余的旧段落颜色已经被 remove 了
         //    如果段落增加了，新增的段落没有颜色，自然为空
 
+        // 先记录旧内容到编辑历史（必须在baseText更新之前）
+        val oldChapterTextForHistory = baseText.subList(editingStartIndex, editingEndIndex)
+            .filterIsInstance<ReaderText.Text>()
+            .joinToString("\n") { it.line.text }
+
         baseText = updatedText
         paragraphHighlightColors = newColors
         persistParagraphColors(newColors)
+
+        // 异步保存编辑历史
+        coroutineScope.launch {
+            addEditHistory(context, book.id, targetChapterIndex, oldChapterTextForHistory)
+            val newHistory = currentEditHistory.toMutableMap()
+            val list = newHistory.getOrPut(targetChapterIndex) { emptyList() }.toMutableList()
+            list.add(0, System.currentTimeMillis() to oldChapterTextForHistory)
+            while (list.size > MAX_HISTORY_PER_CHAPTER) {
+                list.removeAt(list.size - 1)
+            }
+            newHistory[targetChapterIndex] = list
+            currentEditHistory = newHistory
+        }
 
         // 保存编辑章节到缓存（所有格式都持久化）
         val newCache = editedChapterCache.toMutableMap()
@@ -1141,6 +1164,14 @@ fun ReaderScaffold(
                                        else MaterialTheme.colorScheme.error
                             )
                         }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End
+                        ) {
+                            TextButton(onClick = {
+                                editHistoryDialogVisible = true
+                            }) { Text("历史记录") }
+                        }
                     }
                 },
                 confirmButton = {
@@ -1154,6 +1185,79 @@ fun ReaderScaffold(
                 dismissButton = {
                     TextButton(onClick = { editingStartIndex = -1 }) { Text("取消") }
                 }
+            )
+        }
+
+        // 编辑历史记录对话框
+        if (editHistoryDialogVisible) {
+            val historyForChapter = run {
+                var chapIdx = 0
+                for (i in 0 until editingStartIndex) {
+                    if (baseText[i] is ReaderText.Chapter) chapIdx++
+                }
+                currentEditHistory[chapIdx] ?: emptyList()
+            }
+            AlertDialog(
+                onDismissRequest = { editHistoryDialogVisible = false },
+                title = { Text("编辑历史记录") },
+                text = {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        if (historyForChapter.isEmpty()) {
+                            Text("暂无历史记录", style = MaterialTheme.typography.bodyMedium)
+                        } else {
+                            Text(
+                                "共 ${historyForChapter.size} 条记录，点击可恢复",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            historyForChapter.forEachIndexed { idx, (timestamp, content) ->
+                                val dateStr = java.text.SimpleDateFormat(
+                                    "MM-dd HH:mm",
+                                    java.util.Locale.getDefault()
+                                ).format(java.util.Date(timestamp))
+                                val preview = content.take(40).replace("\n", " ") +
+                                        if (content.length > 40) "…" else ""
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .noRippleClickable {
+                                            editingValue = content
+                                            editHistoryDialogVisible = false
+                                        }
+                                        .padding(vertical = 8.dp, horizontal = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        "#${idx + 1}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.width(28.dp)
+                                    )
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            dateStr,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        Text(
+                                            preview,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            maxLines = 1
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { editHistoryDialogVisible = false }) { Text("关闭") }
+                },
+                dismissButton = {}
             )
         }
 
@@ -2053,6 +2157,96 @@ private fun findFileUriByPath(
  * v3: 使用"章节索引+段内序号"作为唯一键(Long类型)，彻底解决相同文本串色问题
  * v2: 使用文本哈希作为键(旧版，已废弃)
  */
+/**
+ * 获取编辑历史记录文件
+ * 格式：每行一个 "chapterIndex|timestamp|base64内容"
+ * 每章最多保留 MAX_HISTORY_PER_CHAPTER 条
+ */
+private const val MAX_HISTORY_PER_CHAPTER = 10
+
+private fun getEditHistoryFile(context: Context, bookId: Int): File {
+    val dir = File(context.filesDir, "edit_history")
+    if (!dir.exists()) dir.mkdirs()
+    return File(dir, "book_${bookId}_v1.dat")
+}
+
+/**
+ * 从文件加载编辑历史
+ * 返回 chapterIndex -> List<Pair<timestamp, content>> 的映射
+ */
+private fun loadEditHistory(context: Context, bookId: Int): Map<Int, List<Pair<Long, String>>> {
+    val file = getEditHistoryFile(context, bookId)
+    if (!file.exists() || file.length() <= 0) return emptyMap()
+    return runCatching {
+        val result = mutableMapOf<Int, MutableList<Pair<Long, String>>>()
+        file.bufferedReader().useLines { lines ->
+            lines.forEach { line ->
+                val parts = line.split("|", limit = 3)
+                if (parts.size < 3) return@forEach
+                val chapterIndex = parts[0].toIntOrNull() ?: return@forEach
+                val timestamp = parts[1].toLongOrNull() ?: return@forEach
+                val content = try {
+                    String(android.util.Base64.decode(parts[2], android.util.Base64.NO_WRAP))
+                } catch (_: Exception) { return@forEach }
+                result.getOrPut(chapterIndex) { mutableListOf() }.add(timestamp to content)
+            }
+        }
+        // 按时间倒序排列
+        result.forEach { (_, list) -> list.sortByDescending { it.first } }
+        result
+    }.getOrElse { emptyMap() }
+}
+
+/**
+ * 追加一条编辑历史记录
+ * 如果该章历史超过 MAX_HISTORY_PER_CHAPTER 条，删除最旧的
+ */
+private fun addEditHistory(
+    context: Context,
+    bookId: Int,
+    chapterIndex: Int,
+    content: String
+) {
+    val currentHistory = loadEditHistory(context, bookId).toMutableMap()
+    val list = currentHistory.getOrPut(chapterIndex) { mutableListOf() }.toMutableList()
+    list.add(0, System.currentTimeMillis() to content)
+    // 保留最近 MAX_HISTORY_PER_CHAPTER 条
+    while (list.size > MAX_HISTORY_PER_CHAPTER) {
+        list.removeAt(list.size - 1)
+    }
+    currentHistory[chapterIndex] = list
+
+    // 写回文件
+    val file = getEditHistoryFile(context, bookId)
+    runCatching {
+        val tempFile = File(file.parent, file.name + ".tmp")
+        tempFile.bufferedWriter().use { writer ->
+            currentHistory.forEach { (chapIdx, historyList) ->
+                historyList.forEach { (ts, text) ->
+                    val encoded = android.util.Base64.encodeToString(
+                        text.toByteArray(),
+                        android.util.Base64.NO_WRAP
+                    )
+                    writer.write("$chapIdx|$ts|$encoded\n")
+                }
+            }
+        }
+        if (!tempFile.renameTo(file)) {
+            file.bufferedWriter().use { writer ->
+                currentHistory.forEach { (chapIdx, historyList) ->
+                    historyList.forEach { (ts, text) ->
+                        val encoded = android.util.Base64.encodeToString(
+                            text.toByteArray(),
+                            android.util.Base64.NO_WRAP
+                        )
+                        writer.write("$chapIdx|$ts|$encoded\n")
+                    }
+                }
+            }
+        }
+    }
+}
+
 /**
  * 获取编辑章节缓存文件
  * 格式：每行一个 "chapterIndex:text"，text用Base64编码
