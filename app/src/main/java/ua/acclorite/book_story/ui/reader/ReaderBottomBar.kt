@@ -183,22 +183,57 @@ fun ReaderBottomBar(
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            renderOrder.forEach { btnId ->
-                when (btnId) {
-                    "chapters" -> BottomAction("目录", enabled = !lockMenu, onClick = showChapters)
-                    "bookmark" -> BottomAction("书签", enabled = !lockMenu, onClick = toggleBookmark)
-                    "nextBookmark" -> BottomAction("去书签", enabled = !lockMenu, onClick = nextBookmark)
-                    "search" -> BottomAction("搜索", enabled = !lockMenu, onClick = search)
-                    "replace" -> BottomAction("替换", enabled = !lockMenu, onClick = replaceRules)
-                    "chapterReplace" -> BottomAction("本章替换", enabled = !lockMenu, onClick = chapterReplace)
-                    "editChapter" -> BottomAction("编辑本章", enabled = !lockMenu, onClick = editChapter)
-                    "highlightColor" -> BottomAction("高亮色", enabled = !lockMenu, onClick = highlightColor)
-                    "modifyHighlight" -> BottomAction("修改高亮", enabled = !lockMenu, active = modifyHighlightActive, onClick = modifyHighlight)
-                    "sort" -> BottomAction("排序", enabled = !lockMenu, onClick = sortButtons)
-                    "settings" -> BottomAction("设置", enabled = !lockMenu, onClick = showSettings)
-                }
+            for (btnId in renderOrder) {
+                ReaderBottomBarButton(
+                    btnId = btnId,
+                    lockMenu = lockMenu,
+                    modifyHighlightActive = modifyHighlightActive,
+                    showChapters = showChapters,
+                    toggleBookmark = toggleBookmark,
+                    nextBookmark = nextBookmark,
+                    search = search,
+                    replaceRules = replaceRules,
+                    chapterReplace = chapterReplace,
+                    editChapter = editChapter,
+                    highlightColor = highlightColor,
+                    modifyHighlight = modifyHighlight,
+                    sortButtons = sortButtons,
+                    showSettings = showSettings
+                )
             }
         }
+    }
+}
+
+@Composable
+private fun ReaderBottomBarButton(
+    btnId: String,
+    lockMenu: Boolean,
+    modifyHighlightActive: Boolean,
+    showChapters: () -> Unit,
+    toggleBookmark: () -> Unit,
+    nextBookmark: () -> Unit,
+    search: () -> Unit,
+    replaceRules: () -> Unit,
+    chapterReplace: () -> Unit,
+    editChapter: () -> Unit,
+    highlightColor: () -> Unit,
+    modifyHighlight: () -> Unit,
+    sortButtons: () -> Unit,
+    showSettings: () -> Unit
+) {
+    when (btnId) {
+        "chapters" -> BottomAction("目录", enabled = !lockMenu, onClick = showChapters)
+        "bookmark" -> BottomAction("书签", enabled = !lockMenu, onClick = toggleBookmark)
+        "nextBookmark" -> BottomAction("去书签", enabled = !lockMenu, onClick = nextBookmark)
+        "search" -> BottomAction("搜索", enabled = !lockMenu, onClick = search)
+        "replace" -> BottomAction("替换", enabled = !lockMenu, onClick = replaceRules)
+        "chapterReplace" -> BottomAction("本章替换", enabled = !lockMenu, onClick = chapterReplace)
+        "editChapter" -> BottomAction("编辑本章", enabled = !lockMenu, onClick = editChapter)
+        "highlightColor" -> BottomAction("高亮色", enabled = !lockMenu, onClick = highlightColor)
+        "modifyHighlight" -> BottomAction("修改高亮", enabled = !lockMenu, active = modifyHighlightActive, onClick = modifyHighlight)
+        "sort" -> BottomAction("排序", enabled = !lockMenu, onClick = sortButtons)
+        "settings" -> BottomAction("设置", enabled = !lockMenu, onClick = showSettings)
     }
 }
 
