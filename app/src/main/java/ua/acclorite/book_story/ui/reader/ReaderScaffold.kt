@@ -495,18 +495,36 @@ fun ReaderScaffold(
     fun saveEditedChapter(value: String) {
         if (editingStartIndex < 0 || editingEndIndex <= editingStartIndex) return
 
-        // === 颜色迁移：编辑前按位置记录旧段落的颜色，编辑后按位置迁移到新键 ===
-        // 找到编辑范围内所有文本段落的旧键和颜色
-        val oldTextKeys = mutableListOf<Long>()
-        for (i in editingStartIndex until editingEndIndex) {
+        // === 颜色迁移：编辑前记录被编辑章节所有段落的键，编辑后整章整体迁移 ===
+        // 第一步：找到被编辑的章节索引
+        var targetChapterIndex = 0
+        for (i in 0 until editingStartIndex) {
+            if (baseText[i] is ReaderText.Chapter) targetChapterIndex++
+        }
+
+        // 第二步：收集被编辑章节内所有文本段落的旧键
+        var currentChapter = -1
+        val oldChapterTextKeys = mutableListOf<Long>() // 目标章节内所有文本段落的旧键（按顺序）
+        var editStartTextIndex = -1 // 编辑范围起始在章内文本列表中的位置
+        var editEndTextIndex = -1   // 编辑范围结束在章内文本列表中的位置
+
+        for (i in baseText.indices) {
             val entry = baseText[i]
+            if (entry is ReaderText.Chapter) {
+                currentChapter++
+                continue
+            }
+            if (currentChapter != targetChapterIndex) continue
             if (entry is ReaderText.Text) {
-                paragraphTextKeys[i]?.let { oldTextKeys.add(it) }
+                if (i >= editingStartIndex && i < editingEndIndex && editStartTextIndex == -1) {
+                    editStartTextIndex = oldChapterTextKeys.size
+                }
+                paragraphTextKeys[i]?.let { oldChapterTextKeys.add(it) }
+                if (i >= editingStartIndex && i < editingEndIndex) {
+                    editEndTextIndex = oldChapterTextKeys.size
+                }
             }
         }
-        val oldColorsByPosition = oldTextKeys.mapIndexed { pos, key ->
-            pos to paragraphHighlightColors[key]
-        }.toMap()
 
         val updatedText = baseText.toMutableList()
         val newLines = value.lines().filter { it.isNotBlank() }
@@ -516,12 +534,7 @@ fun ReaderScaffold(
         updatedText.subList(editingStartIndex, editingEndIndex).clear()
         updatedText.addAll(editingStartIndex, replacement)
 
-        // 先更新 baseText，触发 paragraphTextKeys 重新计算
-        baseText = updatedText
-
-        // 注意：paragraphTextKeys 会因为 baseText 变化而自动重新计算
-        // 但此时 composition 还没重组，paragraphTextKeys 还是旧值
-        // 所以我们需要手动计算新的键
+        // 手动计算新的键映射
         var chapterIndex = 0
         var paragraphInChapter = 0
         val newIndexToKey = updatedText.mapIndexed { index, entry ->
@@ -544,28 +557,68 @@ fun ReaderScaffold(
             index to key
         }.toMap()
 
-        // 收集编辑范围内新文本段落的键
-        val newTextKeys = mutableListOf<Long>()
-        for (i in editingStartIndex until editingStartIndex + replacement.size) {
-            if (updatedText[i] is ReaderText.Text) {
-                newIndexToKey[i]?.let { newTextKeys.add(it) }
+        // 收集编辑后目标章节内所有文本段落的新键
+        val newChapterTextKeys = mutableListOf<Long>()
+        var newEditStartTextIndex = -1
+        var newEditEndTextIndex = -1
+        val newEditEndListIndex = editingStartIndex + replacement.size
+
+        var newChapterIdx = -1
+        for (i in updatedText.indices) {
+            val entry = updatedText[i]
+            if (entry is ReaderText.Chapter) {
+                newChapterIdx++
+                continue
+            }
+            if (newChapterIdx != targetChapterIndex) continue
+            if (entry is ReaderText.Text) {
+                if (i >= editingStartIndex && i < newEditEndListIndex && newEditStartTextIndex == -1) {
+                    newEditStartTextIndex = newChapterTextKeys.size
+                }
+                newIndexToKey[i]?.let { newChapterTextKeys.add(it) }
+                if (i >= editingStartIndex && i < newEditEndListIndex) {
+                    newEditEndTextIndex = newChapterTextKeys.size
+                }
             }
         }
 
-        // 按位置迁移颜色
+        // 整体迁移颜色
         val newColors = paragraphHighlightColors.toMutableMap()
-        val minSize = minOf(oldTextKeys.size, newTextKeys.size)
-        for (i in 0 until minSize) {
-            val oldKey = oldTextKeys[i]
-            val newKey = newTextKeys[i]
+
+        // 1. 编辑范围内：按位置一对一迁移
+        val oldEditCount = editEndTextIndex - editStartTextIndex
+        val newEditCount = newEditEndTextIndex - newEditStartTextIndex
+        val minEditSize = minOf(oldEditCount, newEditCount)
+        for (i in 0 until minEditSize) {
+            val oldKey = oldChapterTextKeys[editStartTextIndex + i]
+            val newKey = newChapterTextKeys[newEditStartTextIndex + i]
             val color = newColors.remove(oldKey)
             if (color != null) {
                 newColors[newKey] = color
             }
         }
-        // 被删除的段落：旧键已经在上面 remove 了，无需额外处理
-        // 新增的段落：没有颜色，自然为空
 
+        // 2. 编辑范围之前的段落：键不变（段内序号没变），颜色自然保留，无需处理
+
+        // 3. 编辑范围之后的段落：按偏移量整体迁移
+        //    旧段序号从 editEndTextIndex 开始
+        //    新段序号从 newEditEndTextIndex 开始
+        val oldAfterCount = oldChapterTextKeys.size - editEndTextIndex
+        val newAfterCount = newChapterTextKeys.size - newEditEndTextIndex
+        val minAfterSize = minOf(oldAfterCount, newAfterCount)
+        for (i in 0 until minAfterSize) {
+            val oldKey = oldChapterTextKeys[editEndTextIndex + i]
+            val newKey = newChapterTextKeys[newEditEndTextIndex + i]
+            val color = newColors.remove(oldKey)
+            if (color != null) {
+                newColors[newKey] = color
+            }
+        }
+
+        // 4. 如果段落减少了，多余的旧段落颜色已经被 remove 了
+        //    如果段落增加了，新增的段落没有颜色，自然为空
+
+        baseText = updatedText
         paragraphHighlightColors = newColors
         persistParagraphColors(newColors)
 
