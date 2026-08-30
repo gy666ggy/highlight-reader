@@ -1468,7 +1468,7 @@ fun ReaderScaffold(
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    "修改高亮模式已开启 - 先选择颜色，然后点击段落",
+                    "修改高亮模式已开启 - 先选择颜色，然后点击段落（仅引号内容变色）",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.tertiary
                 )

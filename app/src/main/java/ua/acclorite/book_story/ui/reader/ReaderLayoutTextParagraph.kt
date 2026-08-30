@@ -56,7 +56,8 @@ fun LazyItemScope.ReaderLayoutTextParagraph(
     openTranslator: (ReaderEvent.OnOpenTranslator) -> Unit,
     menuVisibility: (ReaderEvent.OnMenuVisibility) -> Unit
 ) {
-    val effectiveColor = overrideColor ?: fontColor
+    // 修改高亮：只对引号内容着色，非引号内容保持原色
+    val effectiveDialogueColor = overrideColor ?: dialogueHighlightColor
     Column(
         modifier = Modifier
             .animateItem(fadeInSpec = null, fadeOutSpec = null)
@@ -71,7 +72,7 @@ fun LazyItemScope.ReaderLayoutTextParagraph(
         horizontalAlignment = horizontalAlignment
     ) {
         StyledText(
-            text = paragraph.line.withDialogueHighlight(dialogueHighlightColor),
+            text = paragraph.line.withDialogueHighlight(effectiveDialogueColor),
             modifier = Modifier.then(
                 if (!modifyHighlightMode && doubleClickTranslation && toolbarHidden) {
                     Modifier.noRippleClickable(
@@ -112,7 +113,7 @@ fun LazyItemScope.ReaderLayoutTextParagraph(
                 letterSpacing = letterSpacing,
                 fontSize = fontSize,
                 lineHeight = lineHeight,
-                color = effectiveColor,
+                color = fontColor,
                 lineBreak = LineBreak.Paragraph
             ),
             highlightText = highlightedReading,
