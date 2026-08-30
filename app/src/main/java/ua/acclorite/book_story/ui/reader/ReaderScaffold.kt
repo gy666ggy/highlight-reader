@@ -52,6 +52,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -170,11 +171,16 @@ fun ReaderScaffold(
         context.getSharedPreferences("reader_global_tools", Context.MODE_PRIVATE)
     }
     var baseText by remember(book.id) {
-        // 加载编辑章节缓存并应用
-        // 使用 book.id 作为 key，确保只有切换书籍时才重新加载
-        // 避免因为 text 引用变化导致编辑内容丢失
-        val editedChapters = loadEditedChapters(context, book.id)
-        mutableStateOf(text.applyEditedChapters(editedChapters))
+        // 使用 book.id 作为 key，切换书籍时重置为空
+        mutableStateOf<List<ReaderText>>(emptyList())
+    }
+    // 文本首次加载完成后，应用编辑缓存初始化 baseText
+    // 之后不再随 text 引用变化而重置，避免编辑内容丢失
+    LaunchedEffect(book.id, text.isNotEmpty()) {
+        if (text.isNotEmpty() && baseText.isEmpty()) {
+            val editedChapters = loadEditedChapters(context, book.id)
+            baseText = text.applyEditedChapters(editedChapters)
+        }
     }
     var replacementRules by remember {
         mutableStateOf(globalPrefs.getString("replacement_rules", "").orEmpty())
