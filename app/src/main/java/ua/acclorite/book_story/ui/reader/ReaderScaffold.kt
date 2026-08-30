@@ -366,6 +366,17 @@ fun ReaderScaffold(
         saveParagraphColors(context, book.id, colors)
     }
 
+    fun currentPageToChapterEndRange(): IntRange? {
+        if (baseText.isEmpty()) return null
+        val currentIndex = listState.firstVisibleItemIndex.coerceIn(0, (baseText.size - 1).coerceAtLeast(0))
+        val start = (currentIndex until baseText.size).firstOrNull { baseText[it] is ReaderText.Text }
+            ?: return null
+        val endExclusive = ((start + 1) until baseText.size).firstOrNull {
+            baseText[it] is ReaderText.Chapter
+        } ?: baseText.size
+        return if (start < endExclusive) start until endExclusive else null
+    }
+
     fun chapterSearchInCurrent() {
         val query = chapterSearchValue.trim()
         if (query.isBlank()) {
@@ -556,17 +567,6 @@ fun ReaderScaffold(
         } else {
             editingError = "已替换1处。"
         }
-    }
-
-    fun currentPageToChapterEndRange(): IntRange? {
-        if (baseText.isEmpty()) return null
-        val currentIndex = listState.firstVisibleItemIndex.coerceIn(0, (baseText.size - 1).coerceAtLeast(0))
-        val start = (currentIndex until baseText.size).firstOrNull { baseText[it] is ReaderText.Text }
-            ?: return null
-        val endExclusive = ((start + 1) until baseText.size).firstOrNull {
-            baseText[it] is ReaderText.Chapter
-        } ?: baseText.size
-        return if (start < endExclusive) start until endExclusive else null
     }
 
     fun openChapterEditor() {
