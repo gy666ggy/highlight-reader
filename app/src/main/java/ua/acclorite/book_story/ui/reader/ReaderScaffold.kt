@@ -12,6 +12,7 @@ import android.net.Uri
 import androidx.core.net.toUri
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -23,10 +24,12 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -49,6 +52,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.toArgb
@@ -75,6 +79,7 @@ import ua.acclorite.book_story.presentation.reader.model.ReaderHorizontalGesture
 import ua.acclorite.book_story.presentation.reader.model.ReaderTextAlignment
 import ua.acclorite.book_story.presentation.settings.SettingsEvent
 import ua.acclorite.book_story.ui.common.components.common.AnimatedVisibility
+import ua.acclorite.book_story.ui.common.helpers.noRippleClickable
 import ua.acclorite.book_story.ui.reader.model.FontWithName
 import ua.acclorite.book_story.ui.theme.model.HorizontalAlignment
 import java.io.File
@@ -205,6 +210,62 @@ fun ReaderScaffold(
     var bookmarkDialogVisible by remember { mutableStateOf(false) }
     var highlightColorDialogVisible by remember { mutableStateOf(false) }
 
+    // 修改高亮状态
+    var modifyHighlightMode by remember { mutableStateOf(false) }
+    var modifyHighlightColorDialogVisible by remember { mutableStateOf(false) }
+    var selectedModifyColor by remember {
+        val saved = globalPrefs.getInt("last_modify_highlight_color", -1)
+        mutableStateOf(if (saved != -1) Color(saved) else null)
+    }
+    var paragraphHighlightColors by remember(book.id) {
+        mutableStateOf<Map<Long, Int>>(loadParagraphColors(context, book.id))
+    }
+
+    // 段落唯一键映射：列表索引 -> 段落唯一ID (Long类型)
+    // 使用"章节索引 * 2^32 + 章内文本段落序号"生成唯一键
+    val paragraphTextKeys: Map<Int, Long> = remember(baseText) {
+        var chapterIndex = 0
+        var paragraphInChapter = 0
+        baseText.mapIndexed { index, entry ->
+            val key = when (entry) {
+                is ReaderText.Chapter -> {
+                    val k = (chapterIndex.toLong() shl 32) or (0xFFFFFFF0L)
+                    chapterIndex++
+                    paragraphInChapter = 0
+                    k
+                }
+                is ReaderText.Text -> {
+                    val k = (chapterIndex.toLong() shl 32) or paragraphInChapter.toLong()
+                    paragraphInChapter++
+                    k
+                }
+                else -> {
+                    (chapterIndex.toLong() shl 32) or (0xFF000000L or index.toLong().and(0xFFFFFFL))
+                }
+            }
+            index to key
+        }.toMap()
+    }
+
+    // 本章搜索替换状态
+    var chapterReplaceDialogVisible by remember { mutableStateOf(false) }
+    var chapterSearchValue by remember { mutableStateOf("") }
+    var chapterReplaceValue by remember { mutableStateOf("") }
+    var chapterUseRegex by remember { mutableStateOf(false) }
+    var chapterSearchResults by remember { mutableStateOf(emptyList<ChapterMatchResult>()) }
+
+    // 排序对话框状态
+    var sortDialogVisible by remember { mutableStateOf(false) }
+    val defaultButtonOrder = listOf(
+        "chapters", "bookmark", "nextBookmark", "search", "replace",
+        "chapterReplace", "editChapter", "highlightColor", "modifyHighlight", "sort", "settings"
+    )
+    var buttonOrder by remember {
+        val saved = globalPrefs.getString("bottom_button_order", "").orEmpty()
+            .split(",").filter { it.isNotBlank() }
+        mutableStateOf(if (saved.isNotEmpty() && saved.size == defaultButtonOrder.size) saved else defaultButtonOrder)
+    }
+
     fun parseReplaceRules(): List<String> {
         return replacementRules.lines().filter { it.isNotBlank() }
     }
@@ -298,6 +359,203 @@ fun ReaderScaffold(
         extraPrefs.edit()
             .putString("bookmarks", value.sortedWith(compareBy({ it.index }, { it.offset })).joinToString(",") { it.toStorage() })
             .apply()
+    }
+
+    fun persistParagraphColors(colors: Map<Long, Int>) {
+        paragraphHighlightColors = colors
+        saveParagraphColors(context, book.id, colors)
+    }
+
+    fun chapterSearchInCurrent() {
+        val query = chapterSearchValue.trim()
+        if (query.isBlank()) {
+            chapterSearchResults = emptyList()
+            editingError = null
+            return
+        }
+        val range = currentPageToChapterEndRange() ?: run {
+            editingError = "未找到当前章节"
+            return
+        }
+        val text = baseText.subList(range.first, range.last + 1)
+            .filterIsInstance<ReaderText.Text>()
+            .joinToString("\n") { it.line.text }
+
+        fun makePreview(start: Int, end: Int): String {
+            val ctxStart = (start - 15).coerceAtLeast(0)
+            val ctxEnd = (end + 15).coerceAtMost(text.length)
+            val prefix = if (ctxStart > 0) "…" else ""
+            val suffix = if (ctxEnd < text.length) "…" else ""
+            return prefix + text.substring(ctxStart, ctxEnd) + suffix
+        }
+
+        chapterSearchResults = if (chapterUseRegex) {
+            runCatching {
+                val regex = Regex(query)
+                regex.findAll(text).mapIndexed { i, m ->
+                    ChapterMatchResult(
+                        index = i,
+                        start = m.range.first,
+                        end = m.range.last + 1,
+                        matched = m.value,
+                        preview = makePreview(m.range.first, m.range.last + 1)
+                    )
+                }.toList()
+            }.getOrElse {
+                editingError = "正则表达式无效：${it.message}"
+                emptyList()
+            }
+        } else {
+            val results = mutableListOf<ChapterMatchResult>()
+            var pos = 0
+            var i = 0
+            while (true) {
+                val found = text.indexOf(query, pos)
+                if (found < 0) break
+                results.add(ChapterMatchResult(
+                    index = i++,
+                    start = found,
+                    end = found + query.length,
+                    matched = query,
+                    preview = makePreview(found, found + query.length)
+                ))
+                pos = found + query.length
+            }
+            results
+        }
+        if (chapterSearchResults.isEmpty()) {
+            editingError = "本章未找到：$query"
+        } else {
+            editingError = null
+        }
+    }
+
+    fun chapterReplaceAll() {
+        val query = chapterSearchValue.trim()
+        val replacement = chapterReplaceValue
+        if (query.isBlank()) {
+            editingError = "请先输入搜索内容"
+            return
+        }
+        val range = currentPageToChapterEndRange() ?: run {
+            editingError = "未找到当前章节"
+            return
+        }
+
+        val chapterTexts = baseText.subList(range.first, range.last + 1)
+            .filterIsInstance<ReaderText.Text>()
+        val fullText = chapterTexts.joinToString("\n") { it.line.text }
+
+        val replacedText = if (chapterUseRegex) {
+            runCatching { Regex(query).replace(fullText, replacement) }.getOrElse {
+                editingError = "正则表达式无效：${it.message}"
+                return
+            }
+        } else {
+            fullText.replace(query, replacement)
+        }
+
+        if (replacedText == fullText) {
+            editingError = "没有找到需要替换的内容：$query"
+            return
+        }
+
+        val newLines = replacedText.lines().filter { it.isNotBlank() }
+        val updatedText = baseText.toMutableList()
+        val replacementEntries = buildList {
+            newLines.forEach { add(ReaderText.Text(AnnotatedString(it))) }
+        }
+        updatedText.subList(range.first, range.last + 1).clear()
+        updatedText.addAll(range.first, replacementEntries)
+        baseText = updatedText
+        chapterSearchResults = emptyList()
+
+        // 同步保存到原 TXT 文件
+        if (book.filePath.endsWith(".txt", ignoreCase = true)) {
+            editingError = "正在替换并保存到原 TXT 文件…"
+            coroutineScope.launch {
+                val result = withContext(Dispatchers.IO) {
+                    runCatching {
+                        val output = updatedText.joinToString(separator = "\n") { line ->
+                            when (line) {
+                                is ReaderText.Chapter -> line.title
+                                is ReaderText.Text -> line.line.text
+                                is ReaderText.Separator -> "---"
+                                is ReaderText.Image -> ""
+                                is ReaderText.HtmlMedia -> ""
+                            }
+                        }
+                        writeOriginalTxtFile(context, book.filePath, output)
+                    }
+                }
+                editingError = result.fold(
+                    onSuccess = { "已替换并保存到原 TXT 文件。" },
+                    onFailure = { "替换保存失败：${it.message ?: "未知错误"}" }
+                )
+            }
+        } else {
+            editingError = "已替换（仅 TXT 支持写回原文件）。"
+        }
+    }
+
+    fun chapterReplaceSingle(result: ChapterMatchResult) {
+        val query = chapterSearchValue.trim()
+        val replacement = chapterReplaceValue
+        if (query.isBlank()) return
+        val range = currentPageToChapterEndRange() ?: return
+
+        val chapterTexts = baseText.subList(range.first, range.last + 1)
+            .filterIsInstance<ReaderText.Text>()
+        val fullText = chapterTexts.joinToString("\n") { it.line.text }
+
+        // 只替换第一处匹配（正则模式用 replaceFirst）
+        val replacedText = if (chapterUseRegex) {
+            runCatching { Regex(query).replaceFirst(fullText, replacement) }.getOrElse { return }
+        } else {
+            val idx = fullText.indexOf(query)
+            if (idx < 0) return
+            fullText.substring(0, idx) + replacement + fullText.substring(idx + query.length)
+        }
+
+        if (replacedText == fullText) {
+            editingError = "没有找到需要替换的内容"
+            return
+        }
+
+        val newLines = replacedText.lines().filter { it.isNotBlank() }
+        val updatedText = baseText.toMutableList()
+        val replacementEntries = buildList {
+            newLines.forEach { add(ReaderText.Text(AnnotatedString(it))) }
+        }
+        updatedText.subList(range.first, range.last + 1).clear()
+        updatedText.addAll(range.first, replacementEntries)
+        baseText = updatedText
+
+        // 重新搜索
+        chapterSearchInCurrent()
+
+        // 同步保存到原 TXT 文件
+        if (book.filePath.endsWith(".txt", ignoreCase = true)) {
+            coroutineScope.launch {
+                withContext(Dispatchers.IO) {
+                    runCatching {
+                        val output = updatedText.joinToString(separator = "\n") { line ->
+                            when (line) {
+                                is ReaderText.Chapter -> line.title
+                                is ReaderText.Text -> line.line.text
+                                is ReaderText.Separator -> "---"
+                                is ReaderText.Image -> ""
+                                is ReaderText.HtmlMedia -> ""
+                            }
+                        }
+                        writeOriginalTxtFile(context, book.filePath, output)
+                    }
+                }
+            }
+            editingError = "已替换1处并保存到原 TXT 文件。"
+        } else {
+            editingError = "已替换1处。"
+        }
     }
 
     fun currentPageToChapterEndRange(): IntRange? {
@@ -602,7 +860,23 @@ fun ReaderScaffold(
                             editingError = "还没有书签"
                         }
                     },
-                    highlightColor = { highlightColorDialogVisible = true }
+                    highlightColor = { highlightColorDialogVisible = true },
+                    modifyHighlight = {
+                        if (modifyHighlightMode) {
+                            modifyHighlightMode = false
+                        } else {
+                            modifyHighlightMode = true
+                        }
+                    },
+                    modifyHighlightActive = modifyHighlightMode,
+                    chapterReplace = {
+                        chapterSearchValue = ""
+                        chapterReplaceValue = ""
+                        chapterSearchResults = emptyList()
+                        chapterReplaceDialogVisible = true
+                    },
+                    sortButtons = { sortDialogVisible = true },
+                    buttonOrder = buttonOrder
                 )
             }
         }
@@ -630,6 +904,19 @@ fun ReaderScaffold(
                 highlightedReading = highlightedReading,
                 highlightedReadingThickness = highlightedReadingThickness,
                 dialogueHighlightColor = Color(dialogueHighlightColor),
+                paragraphHighlightColors = paragraphHighlightColors.mapValues { Color(it.value) },
+                modifyHighlightMode = modifyHighlightMode,
+                paragraphTextKeys = paragraphTextKeys,
+                onParagraphColorChange = { key ->
+                    val currentColors = paragraphHighlightColors.toMutableMap()
+                    if (selectedModifyColor != null) {
+                        currentColors[key] = selectedModifyColor!!.toArgb()
+                        persistParagraphColors(currentColors)
+                    } else {
+                        // 没有选颜色就弹出颜色选择器
+                        modifyHighlightColorDialogVisible = true
+                    }
+                },
                 progress = progress,
                 progressBar = progressBar,
                 progressBarPadding = progressBarPadding,
@@ -1161,6 +1448,238 @@ fun ReaderScaffold(
             )
         }
 
+        if (modifyHighlightColorDialogVisible) {
+            ColorPickerDialog(
+                currentColor = selectedModifyColor ?: Color(0xFFD32F2F),
+                onColorSelected = { color ->
+                    selectedModifyColor = color
+                    globalPrefs.edit().putInt("last_modify_highlight_color", color.toArgb()).apply()
+                    modifyHighlightColorDialogVisible = false
+                },
+                onDismiss = { modifyHighlightColorDialogVisible = false }
+            )
+        }
+
+        if (modifyHighlightMode && selectedModifyColor == null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    "修改高亮模式已开启 - 先选择颜色，然后点击段落",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.tertiary
+                )
+            }
+        } else if (modifyHighlightMode && selectedModifyColor != null) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "当前颜色：",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.size(8.dp))
+                    Box(
+                        Modifier
+                            .size(20.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(selectedModifyColor!!)
+                    )
+                }
+                TextButton(
+                    onClick = { modifyHighlightColorDialogVisible = true }
+                ) {
+                    Text("换颜色")
+                }
+            }
+        }
+
+        if (chapterReplaceDialogVisible) {
+            AlertDialog(
+                onDismissRequest = { chapterReplaceDialogVisible = false },
+                title = { Text("本章搜索替换") },
+                text = {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = chapterSearchValue,
+                            onValueChange = { chapterSearchValue = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("搜索内容（仅本章）") },
+                            singleLine = true
+                        )
+                        OutlinedTextField(
+                            value = chapterReplaceValue,
+                            onValueChange = { chapterReplaceValue = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("替换为（留空则删除）") },
+                            singleLine = true
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("正则表达式")
+                            TextButton(onClick = { chapterUseRegex = !chapterUseRegex }) {
+                                Text(if (chapterUseRegex) "已开启" else "已关闭")
+                            }
+                        }
+                        if (chapterSearchResults.isNotEmpty()) {
+                            Text(
+                                "找到 ${chapterSearchResults.size} 处结果，点击可替换单个",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 300.dp)
+                        ) {
+                            items(chapterSearchResults) { result ->
+                                TextButton(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    onClick = { chapterReplaceSingle(result) }
+                                ) {
+                                    Text(
+                                        text = "#${result.index + 1} ${result.preview}",
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(onClick = { chapterSearchInCurrent() }) {
+                            Text("搜索")
+                        }
+                        Button(
+                            onClick = { chapterReplaceAll() },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.tertiary
+                            )
+                        ) {
+                            Text("全部替换")
+                        }
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { chapterReplaceDialogVisible = false }) {
+                        Text("关闭")
+                    }
+                }
+            )
+        }
+
+        if (sortDialogVisible) {
+            val buttonLabels = mapOf(
+                "chapters" to "目录",
+                "bookmark" to "书签",
+                "nextBookmark" to "去书签",
+                "search" to "搜索",
+                "replace" to "替换",
+                "chapterReplace" to "本章替换",
+                "editChapter" to "编辑本章",
+                "highlightColor" to "高亮色",
+                "modifyHighlight" to "修改高亮",
+                "sort" to "排序",
+                "settings" to "设置"
+            )
+            AlertDialog(
+                onDismissRequest = { sortDialogVisible = false },
+                title = { Text("按钮排序") },
+                text = {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(
+                            "点击按钮上移一位，长按重置排序",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        buttonOrder.forEachIndexed { idx, btnId ->
+                            val label = buttonLabels[btnId] ?: btnId
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .noRippleClickable {
+                                        if (idx > 0) {
+                                            val newOrder = buttonOrder.toMutableList()
+                                            val tmp = newOrder[idx]
+                                            newOrder[idx] = newOrder[idx - 1]
+                                            newOrder[idx - 1] = tmp
+                                            buttonOrder = newOrder
+                                            globalPrefs.edit()
+                                                .putString("bottom_button_order", newOrder.joinToString(","))
+                                                .apply()
+                                        }
+                                    },
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (idx == 0)
+                                        MaterialTheme.colorScheme.primaryContainer
+                                    else MaterialTheme.colorScheme.surfaceVariant
+                                )
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        "${idx + 1}.",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(end = 8.dp)
+                                    )
+                                    Text(
+                                        label,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    Row {
+                        TextButton(
+                            onClick = {
+                                buttonOrder = defaultButtonOrder
+                                globalPrefs.edit()
+                                    .putString("bottom_button_order", defaultButtonOrder.joinToString(","))
+                                    .apply()
+                            }
+                        ) {
+                            Text("重置")
+                        }
+                        TextButton(onClick = { sortDialogVisible = false }) {
+                            Text("完成")
+                        }
+                    }
+                },
+                dismissButton = {}
+            )
+        }
+
         if (editingError != null) {
             AlertDialog(
                 onDismissRequest = { editingError = null },
@@ -1329,6 +1848,73 @@ private data class SearchResult(
     val chapter: String,
     val preview: String
 )
+
+private data class ChapterMatchResult(
+    val index: Int,
+    val start: Int,
+    val end: Int,
+    val matched: String,
+    val preview: String
+)
+
+/**
+ * 加载段落高亮颜色
+ * 存储格式：每行 "key:colorArgb"
+ * key 是 Long 类型（章节索引<<32 | 段落序号）
+ */
+private fun loadParagraphColors(context: Context, bookId: Int): Map<Long, Int> {
+    val dir = File(context.filesDir, "paragraph_colors")
+    if (!dir.exists()) dir.mkdirs()
+    val file = File(dir, "book_${bookId}.dat")
+    if (!file.exists() || file.length() <= 0) {
+        // 也从 SharedPreferences 备份读
+        val prefs = context.getSharedPreferences("reader_extra_$bookId", Context.MODE_PRIVATE)
+        val raw = prefs.getString("paragraph_colors", "") ?: ""
+        if (raw.isBlank()) return emptyMap()
+        return raw.split(",").mapNotNull { entry ->
+            val parts = entry.split(":")
+            val key = parts.getOrNull(0)?.toLongOrNull() ?: return@mapNotNull null
+            val color = parts.getOrNull(1)?.toIntOrNull() ?: return@mapNotNull null
+            key to color
+        }.toMap()
+    }
+    return runCatching {
+        file.bufferedReader().useLines { lines ->
+            lines.mapNotNull { line ->
+                val parts = line.split(":", limit = 2)
+                val key = parts.getOrNull(0)?.toLongOrNull() ?: return@mapNotNull null
+                val color = parts.getOrNull(1)?.toIntOrNull() ?: return@mapNotNull null
+                key to color
+            }.toMap()
+        }
+    }.getOrElse { emptyMap() }
+}
+
+/**
+ * 保存段落高亮颜色（双重保险：文件 + SharedPreferences）
+ */
+private fun saveParagraphColors(context: Context, bookId: Int, colors: Map<Long, Int>) {
+    val dir = File(context.filesDir, "paragraph_colors")
+    if (!dir.exists()) dir.mkdirs()
+
+    // 写入文件
+    runCatching {
+        val file = File(dir, "book_${bookId}.dat")
+        val tempFile = File(file.parent, file.name + ".tmp")
+        tempFile.bufferedWriter().use { writer ->
+            colors.forEach { (key, color) ->
+                writer.write("$key:$color\n")
+            }
+            writer.flush()
+        }
+        tempFile.renameTo(file)
+    }
+
+    // SharedPreferences 备份
+    val prefs = context.getSharedPreferences("reader_extra_$bookId", Context.MODE_PRIVATE)
+    val raw = colors.entries.joinToString(",") { (key, color) -> "$key:$color" }
+    prefs.edit().putString("paragraph_colors", raw).apply()
+}
 
 private data class BookmarkPoint(
     val index: Int,

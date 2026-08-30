@@ -63,6 +63,10 @@ fun ReaderLayout(
     highlightedReading: Boolean,
     highlightedReadingThickness: FontWeight,
     dialogueHighlightColor: Color,
+    paragraphHighlightColors: Map<Long, Color> = emptyMap(),
+    modifyHighlightMode: Boolean = false,
+    paragraphTextKeys: Map<Int, Long> = emptyMap(),
+    onParagraphColorChange: (Long) -> Unit = {},
     progress: String,
     progressBar: Boolean,
     progressBarPadding: Dp,
@@ -217,6 +221,11 @@ fun ReaderLayout(
                                     highlightedReading = highlightedReading,
                                     highlightedReadingThickness = highlightedReadingThickness,
                                     dialogueHighlightColor = dialogueHighlightColor,
+                                    overrideColor = paragraphTextKeys[index]?.let { paragraphHighlightColors[it] },
+                                    modifyHighlightMode = modifyHighlightMode,
+                                    onParagraphClick = {
+                                        paragraphTextKeys[index]?.let { onParagraphColorChange(it) }
+                                    },
                                     toolbarHidden = toolbarHidden,
                                     openTranslator = openTranslator,
                                     menuVisibility = menuVisibility

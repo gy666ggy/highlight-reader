@@ -49,22 +49,31 @@ fun LazyItemScope.ReaderLayoutTextParagraph(
     highlightedReading: Boolean,
     highlightedReadingThickness: FontWeight,
     dialogueHighlightColor: Color,
+    overrideColor: Color? = null,
+    modifyHighlightMode: Boolean = false,
+    onParagraphClick: () -> Unit = {},
     toolbarHidden: Boolean,
     openTranslator: (ReaderEvent.OnOpenTranslator) -> Unit,
     menuVisibility: (ReaderEvent.OnMenuVisibility) -> Unit
 ) {
+    val effectiveColor = overrideColor ?: fontColor
     Column(
         modifier = Modifier
             .animateItem(fadeInSpec = null, fadeOutSpec = null)
             .fillMaxWidth()
-            .padding(horizontal = sidePadding),
+            .padding(horizontal = sidePadding)
+            .then(
+                if (modifyHighlightMode) {
+                    Modifier.noRippleClickable { onParagraphClick() }
+                } else Modifier
+            ),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = horizontalAlignment
     ) {
         StyledText(
             text = paragraph.line.withDialogueHighlight(dialogueHighlightColor),
             modifier = Modifier.then(
-                if (doubleClickTranslation && toolbarHidden) {
+                if (!modifyHighlightMode && doubleClickTranslation && toolbarHidden) {
                     Modifier.noRippleClickable(
                         onDoubleClick = {
                             openTranslator(
@@ -83,6 +92,15 @@ fun LazyItemScope.ReaderLayoutTextParagraph(
                             )
                         }
                     )
+                } else if (!modifyHighlightMode && !doubleClickTranslation && toolbarHidden) {
+                    Modifier.noRippleClickable {
+                        menuVisibility(
+                            ReaderEvent.OnMenuVisibility(
+                                show = !showMenu,
+                                saveCheckpoint = true
+                            )
+                        )
+                    }
                 } else Modifier
             ),
             style = TextStyle(
@@ -94,7 +112,7 @@ fun LazyItemScope.ReaderLayoutTextParagraph(
                 letterSpacing = letterSpacing,
                 fontSize = fontSize,
                 lineHeight = lineHeight,
-                color = fontColor,
+                color = effectiveColor,
                 lineBreak = LineBreak.Paragraph
             ),
             highlightText = highlightedReading,

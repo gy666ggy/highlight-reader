@@ -73,7 +73,12 @@ fun ReaderBottomBar(
     replaceRules: () -> Unit,
     toggleBookmark: () -> Unit,
     nextBookmark: () -> Unit,
-    highlightColor: () -> Unit
+    highlightColor: () -> Unit,
+    modifyHighlight: () -> Unit,
+    modifyHighlightActive: Boolean = false,
+    chapterReplace: () -> Unit,
+    sortButtons: () -> Unit,
+    buttonOrder: List<String> = emptyList()
 ) {
     val currentIndex by remember {
         derivedStateOf {
@@ -165,6 +170,26 @@ fun ReaderBottomBar(
             )
         }
 
+        val defaultOrder = listOf(
+            "chapters", "bookmark", "nextBookmark", "search", "replace",
+            "chapterReplace", "editChapter", "highlightColor", "modifyHighlight", "sort", "settings"
+        )
+        val renderOrder = if (buttonOrder.isNotEmpty()) buttonOrder else defaultOrder
+
+        val buttonRenderers: Map<String, @Composable () -> Unit> = mapOf(
+            "chapters" to { BottomAction("目录", enabled = !lockMenu, onClick = showChapters) },
+            "bookmark" to { BottomAction("书签", enabled = !lockMenu, onClick = toggleBookmark) },
+            "nextBookmark" to { BottomAction("去书签", enabled = !lockMenu, onClick = nextBookmark) },
+            "search" to { BottomAction("搜索", enabled = !lockMenu, onClick = search) },
+            "replace" to { BottomAction("替换", enabled = !lockMenu, onClick = replaceRules) },
+            "chapterReplace" to { BottomAction("本章替换", enabled = !lockMenu, onClick = chapterReplace) },
+            "editChapter" to { BottomAction("编辑本章", enabled = !lockMenu, onClick = editChapter) },
+            "highlightColor" to { BottomAction("高亮色", enabled = !lockMenu, onClick = highlightColor) },
+            "modifyHighlight" to { BottomAction("修改高亮", enabled = !lockMenu, active = modifyHighlightActive, onClick = modifyHighlight) },
+            "sort" to { BottomAction("排序", enabled = !lockMenu, onClick = sortButtons) },
+            "settings" to { BottomAction("设置", enabled = !lockMenu, onClick = showSettings) }
+        )
+
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -172,14 +197,9 @@ fun ReaderBottomBar(
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            BottomAction("目录", enabled = !lockMenu, onClick = showChapters)
-            BottomAction("书签", enabled = !lockMenu, onClick = toggleBookmark)
-            BottomAction("去书签", enabled = !lockMenu, onClick = nextBookmark)
-            BottomAction("搜索", enabled = !lockMenu, onClick = search)
-            BottomAction("替换", enabled = !lockMenu, onClick = replaceRules)
-            BottomAction("编辑本章", enabled = !lockMenu, onClick = editChapter)
-            BottomAction("高亮色", enabled = !lockMenu, onClick = highlightColor)
-            BottomAction("设置", enabled = !lockMenu, onClick = showSettings)
+            renderOrder.forEach { btnId ->
+                buttonRenderers[btnId]?.invoke()
+            }
         }
     }
 }
@@ -188,7 +208,8 @@ fun ReaderBottomBar(
 private fun BottomAction(
     text: String,
     enabled: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    active: Boolean = false
 ) {
     TextButton(
         enabled = enabled,
@@ -197,10 +218,10 @@ private fun BottomAction(
         StyledText(
             text = text,
             style = MaterialTheme.typography.labelLarge.copy(
-                color = if (enabled) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                color = when {
+                    !enabled -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                    active -> MaterialTheme.colorScheme.tertiary
+                    else -> MaterialTheme.colorScheme.primary
                 }
             )
         )
