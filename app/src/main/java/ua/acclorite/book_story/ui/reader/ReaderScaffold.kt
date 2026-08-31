@@ -189,6 +189,7 @@ fun ReaderScaffold(
     var editingEndIndex by remember { mutableIntStateOf(-1) }
     var editingValue by remember { mutableStateOf("") }
     var editingError by remember { mutableStateOf<String?>(null) }
+    var editingSaving by remember { mutableStateOf(false) }
     var searchDialogVisible by remember { mutableStateOf(false) }
     var searchValue by remember { mutableStateOf("") }
     var searchReplaceValue by remember { mutableStateOf("") }
@@ -580,7 +581,7 @@ fun ReaderScaffold(
     }
 
     fun saveEditedChapter(value: String) {
-        if (editingStartIndex < 0 || editingEndIndex <= editingStartIndex) return
+        if (editingStartIndex < 0 || editingEndIndex <= editingStartIndex || editingSaving) return
         val updatedText = baseText.toMutableList()
         val replacement = buildList {
             value.lines()
@@ -592,7 +593,8 @@ fun ReaderScaffold(
         baseText = updatedText
 
         if (book.filePath.endsWith(".txt", ignoreCase = true)) {
-            editingError = "正在保存到手机原 TXT 文件…"
+            editingSaving = true
+            editingError = "正在保存到手机原 TXT 文件，请稍候…"
             coroutineScope.launch {
                 val result = withContext(Dispatchers.IO) {
                     runCatching {
@@ -608,13 +610,22 @@ fun ReaderScaffold(
                         writeOriginalTxtFile(context, book.filePath, output)
                     }
                 }
+                editingSaving = false
                 editingError = result.fold(
-                    onSuccess = { "已保存并替换手机里的原 TXT 文件。" },
-                    onFailure = { "TXT 原文件保存失败：${it.message ?: "未知错误"}。如果这本书是旧导入的，请重新从手机文件夹导入一次，让 App 获取写入权限。" }
+                    onSuccess = {
+                        // 保存成功后稍等再关闭，让用户看到成功提示
+                        kotlinx.coroutines.delay(600)
+                        editingStartIndex = -1
+                        "已保存到原 TXT 文件。"
+                    },
+                    onFailure = {
+                        "保存失败：${it.message ?: "未知错误"}。如果这本书是旧导入的，请重新从手机文件夹导入一次。"
+                    }
                 )
             }
         } else {
             editingError = "本章内容已在当前阅读界面更新；直接写回原文件目前只支持 TXT。"
+            editingStartIndex = -1
         }
     }
 
@@ -996,16 +1007,19 @@ fun ReaderScaffold(
                 },
                 confirmButton = {
                     Button(
+                        enabled = !editingSaving,
                         onClick = {
                             saveEditedChapter(editingValue)
-                            editingStartIndex = -1
                         }
                     ) {
-                        Text("保存")
+                        Text(if (editingSaving) "保存中…" else "保存")
                     }
                 },
                 dismissButton = {
-                    TextButton(onClick = { editingStartIndex = -1 }) {
+                    TextButton(
+                        enabled = !editingSaving,
+                        onClick = { editingStartIndex = -1 }
+                    ) {
                         Text("取消")
                     }
                 }
@@ -1971,31 +1985,34 @@ private fun writeOriginalTxtFile(context: Context, filePath: String, text: Strin
         return
     }
 
-    context.contentResolver.persistedUriPermissions.forEach { permission ->
-        val storage = runCatching { CachedFileCompat.fromUri(context, permission.uri) }.getOrNull()
-            ?: return@forEach
-        if (!storage.isDirectory) return@forEach
-        if (!filePath.startsWith(storage.path, ignoreCase = true)) return@forEach
+    // 使用与 FileProvider.getFileFromBook 完全一致的 walk() 逻辑查找文件，确保路径匹配方式相同
+    val permissions = context.contentResolver.persistedUriPermissions
+    for (permission in permissions) {
+        val storage = runCatching {
+            ua.acclorite.book_story.data.model.file.CachedFileCompat.fromUri(
+                context, permission.uri
+            )
+        }.getOrNull() ?: continue
+        if (!storage.isDirectory) continue
+        if (!filePath.startsWith(storage.path, ignoreCase = true)) continue
 
-        val targetUri = findFileUriByPath(storage, filePath) ?: return@forEach
-        context.contentResolver.openOutputStream(targetUri, "wt")?.use { output ->
-            output.write(text.toByteArray())
+        var targetUri: android.net.Uri? = null
+        storage.walk { file ->
+            if (file.path.equals(filePath, ignoreCase = true)) {
+                targetUri = file.uri
+            }
+        }
+        val uri = targetUri ?: continue
+
+        context.contentResolver.openOutputStream(uri, "wt")?.use { output ->
+            output.write(text.toByteArray(Charsets.UTF_8))
+            output.flush()
         } ?: throw IllegalStateException("无法打开原 TXT 文件写入流")
         return
     }
 
-    throw IllegalStateException("找不到可写入的原 TXT 文件")
-}
-
-private fun findFileUriByPath(
-    root: ua.acclorite.book_story.data.model.file.CachedFile,
-    targetPath: String
-): Uri? {
-    root.listFiles().forEach { child ->
-        if (child.path.equals(targetPath, ignoreCase = true)) return child.uri
-        if (child.isDirectory && targetPath.startsWith(child.path, ignoreCase = true)) {
-            findFileUriByPath(child, targetPath)?.let { return it }
-        }
-    }
-    return null
+    throw IllegalStateException(
+        "找不到可写入的原 TXT 文件（已检查 ${permissions.size} 个存储权限）。" +
+            "请尝试重新从手机文件夹导入这本书，让 App 获取写入权限。"
+    )
 }
