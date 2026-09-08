@@ -612,22 +612,16 @@ fun ReaderScaffold(
                 }
             }
             fileWriteScope.launch {
-                runCatching {
+                val result = runCatching {
                     writeOriginalTxtFile(context, book.filePath, output)
-                }.fold(
-                    onSuccess = {
-                        android.widget.Toast.makeText(
-                            context, "已保存到原TXT文件", android.widget.Toast.LENGTH_SHORT
-                        ).show()
-                    },
-                    onFailure = {
-                        android.widget.Toast.makeText(
-                            context,
-                            "保存失败：${it.message ?: "未知错误"}",
-                            android.widget.Toast.LENGTH_LONG
-                        ).show()
-                    }
-                )
+                }
+                withContext(Dispatchers.Main) {
+                    val msg = result.fold(
+                        onSuccess = { "已保存到原TXT文件" },
+                        onFailure = { "保存失败：${it.message ?: "未知错误"}" }
+                    )
+                    android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+                }
             }
         } else {
             editingError = "本章内容已在当前阅读界面更新；直接写回原文件目前只支持 TXT。"
