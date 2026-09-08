@@ -65,7 +65,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import ua.acclorite.book_story.domain.model.library.Book
@@ -161,6 +163,10 @@ fun ReaderScaffold(
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+    // 独立的写入 scope，不随 Composable 生命周期结束而被取消
+    val fileWriteScope = remember {
+        CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    }
     val extraPrefs = remember(book.id) {
         context.getSharedPreferences("reader_extra_${book.id}", Context.MODE_PRIVATE)
     }
@@ -591,8 +597,11 @@ fun ReaderScaffold(
         updatedText.addAll(editingStartIndex, replacement)
         baseText = updatedText
 
+        // 立即关闭对话框，不阻塞UI
+        editingStartIndex = -1
+
         if (book.filePath.endsWith(".txt", ignoreCase = true)) {
-            // 同步写入原 TXT 文件，写完立即关闭
+            // 后台写入原 TXT 文件，使用独立 scope 防止退出阅读器时被取消
             val output = updatedText.joinToString(separator = "\n") { line ->
                 when (line) {
                     is ReaderText.Chapter -> line.title
@@ -602,19 +611,27 @@ fun ReaderScaffold(
                     is ReaderText.HtmlMedia -> ""
                 }
             }
-            val result = runCatching {
-                kotlinx.coroutines.runBlocking(Dispatchers.IO) {
+            fileWriteScope.launch {
+                runCatching {
                     writeOriginalTxtFile(context, book.filePath, output)
-                }
+                }.fold(
+                    onSuccess = {
+                        android.widget.Toast.makeText(
+                            context, "已保存到原TXT文件", android.widget.Toast.LENGTH_SHORT
+                        ).show()
+                    },
+                    onFailure = {
+                        android.widget.Toast.makeText(
+                            context,
+                            "保存失败：${it.message ?: "未知错误"}",
+                            android.widget.Toast.LENGTH_LONG
+                        ).show()
+                    }
+                )
             }
-            editingError = result.fold(
-                onSuccess = { "已保存到原 TXT 文件。" },
-                onFailure = { "保存失败：${it.message ?: "未知错误"}" }
-            )
         } else {
             editingError = "本章内容已在当前阅读界面更新；直接写回原文件目前只支持 TXT。"
         }
-        editingStartIndex = -1
     }
 
     fun buildSearchResults() {
