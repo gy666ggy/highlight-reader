@@ -189,7 +189,6 @@ fun ReaderScaffold(
     var editingEndIndex by remember { mutableIntStateOf(-1) }
     var editingValue by remember { mutableStateOf("") }
     var editingError by remember { mutableStateOf<String?>(null) }
-    var editingSaving by remember { mutableStateOf(false) }
     var searchDialogVisible by remember { mutableStateOf(false) }
     var searchValue by remember { mutableStateOf("") }
     var searchReplaceValue by remember { mutableStateOf("") }
@@ -581,7 +580,7 @@ fun ReaderScaffold(
     }
 
     fun saveEditedChapter(value: String) {
-        if (editingStartIndex < 0 || editingEndIndex <= editingStartIndex || editingSaving) return
+        if (editingStartIndex < 0 || editingEndIndex <= editingStartIndex) return
         val updatedText = baseText.toMutableList()
         val replacement = buildList {
             value.lines()
@@ -593,40 +592,29 @@ fun ReaderScaffold(
         baseText = updatedText
 
         if (book.filePath.endsWith(".txt", ignoreCase = true)) {
-            editingSaving = true
-            editingError = "正在保存到手机原 TXT 文件，请稍候…"
-            coroutineScope.launch {
-                val result = withContext(Dispatchers.IO) {
-                    runCatching {
-                        val output = updatedText.joinToString(separator = "\n") { line ->
-                            when (line) {
-                                is ReaderText.Chapter -> line.title
-                                is ReaderText.Text -> line.line.text
-                                is ReaderText.Separator -> "---"
-                                is ReaderText.Image -> ""
-                                is ReaderText.HtmlMedia -> ""
-                            }
-                        }
-                        writeOriginalTxtFile(context, book.filePath, output)
-                    }
+            // 同步写入原 TXT 文件，写完立即关闭
+            val output = updatedText.joinToString(separator = "\n") { line ->
+                when (line) {
+                    is ReaderText.Chapter -> line.title
+                    is ReaderText.Text -> line.line.text
+                    is ReaderText.Separator -> "---"
+                    is ReaderText.Image -> ""
+                    is ReaderText.HtmlMedia -> ""
                 }
-                editingSaving = false
-                editingError = result.fold(
-                    onSuccess = {
-                        // 保存成功后稍等再关闭，让用户看到成功提示
-                        kotlinx.coroutines.delay(600)
-                        editingStartIndex = -1
-                        "已保存到原 TXT 文件。"
-                    },
-                    onFailure = {
-                        "保存失败：${it.message ?: "未知错误"}。如果这本书是旧导入的，请重新从手机文件夹导入一次。"
-                    }
-                )
             }
+            val result = runCatching {
+                kotlinx.coroutines.runBlocking(Dispatchers.IO) {
+                    writeOriginalTxtFile(context, book.filePath, output)
+                }
+            }
+            editingError = result.fold(
+                onSuccess = { "已保存到原 TXT 文件。" },
+                onFailure = { "保存失败：${it.message ?: "未知错误"}" }
+            )
         } else {
             editingError = "本章内容已在当前阅读界面更新；直接写回原文件目前只支持 TXT。"
-            editingStartIndex = -1
         }
+        editingStartIndex = -1
     }
 
     fun buildSearchResults() {
@@ -1007,19 +995,15 @@ fun ReaderScaffold(
                 },
                 confirmButton = {
                     Button(
-                        enabled = !editingSaving,
                         onClick = {
                             saveEditedChapter(editingValue)
                         }
                     ) {
-                        Text(if (editingSaving) "保存中…" else "保存")
+                        Text("保存")
                     }
                 },
                 dismissButton = {
-                    TextButton(
-                        enabled = !editingSaving,
-                        onClick = { editingStartIndex = -1 }
-                    ) {
+                    TextButton(onClick = { editingStartIndex = -1 }) {
                         Text("取消")
                     }
                 }
