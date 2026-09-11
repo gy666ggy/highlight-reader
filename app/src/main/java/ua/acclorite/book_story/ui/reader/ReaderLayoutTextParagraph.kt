@@ -60,6 +60,9 @@ fun LazyItemScope.ReaderLayoutTextParagraph(
     punctuationFrom: String = "",
     onParagraphClick: () -> Unit = {},
     onPunctuationClick: (Int) -> Unit = {},
+    textReplaceMode: Boolean = false,
+    textReplaceRules: List<Triple<String, String, Boolean>> = emptyList(),
+    onTextReplaceClick: (Int) -> Unit = {},
     toolbarHidden: Boolean,
     openTranslator: (ReaderEvent.OnOpenTranslator) -> Unit,
     menuVisibility: (ReaderEvent.OnMenuVisibility) -> Unit
@@ -67,38 +70,57 @@ fun LazyItemScope.ReaderLayoutTextParagraph(
     // 修改高亮：只对引号内容着色，非引号内容保持原色
     val effectiveDialogueColor = overrideColor ?: dialogueHighlightColor
 
-    // 在标点编辑模式下追踪 TextLayoutResult
+    // 在标点编辑或文字替换模式下追踪 TextLayoutResult
     val layoutResult = remember { mutableStateOf<TextLayoutResult?>(null) }
 
-    val punctuationModifier = if (punctuationEditMode) {
-        Modifier.pointerInput(paragraph) {
+    val tapModifier = if (punctuationEditMode || textReplaceMode) {
+        Modifier.pointerInput(paragraph, punctuationEditMode, textReplaceMode, textReplaceRules) {
             detectTapGestures { offset ->
                 val result = layoutResult.value ?: return@detectTapGestures
                 val text = paragraph.line.text
                 if (text.isEmpty()) return@detectTapGestures
-                // getOffsetForPosition 可能返回等于 text.length 的值，需钳制到有效范围
-                var charOffset = result.getOffsetForPosition(offset)
+                val charOffset = result.getOffsetForPosition(offset)
                     .coerceIn(0, text.length - 1)
-                val target = punctuationFrom.firstOrNull()
-                if (target != null) {
-                    // 从点击位置向两边搜索最近的标点
-                    var foundOffset = -1
-                    var searchRadius = 0
-                    while (searchRadius < text.length) {
-                        val left = charOffset - searchRadius
-                        val right = charOffset + searchRadius
-                        if (left >= 0 && left < text.length && text[left] == target) {
-                            foundOffset = left
-                            break
+
+                if (punctuationEditMode) {
+                    // 标点编辑：从点击位置向两边搜索最近的标点
+                    val target = punctuationFrom.firstOrNull()
+                    if (target != null) {
+                        var foundOffset = -1
+                        var searchRadius = 0
+                        while (searchRadius < text.length) {
+                            val left = charOffset - searchRadius
+                            val right = charOffset + searchRadius
+                            if (left >= 0 && left < text.length && text[left] == target) {
+                                foundOffset = left
+                                break
+                            }
+                            if (right in 0 until text.length && text[right] == target) {
+                                foundOffset = right
+                                break
+                            }
+                            searchRadius++
                         }
-                        if (right in 0 until text.length && text[right] == target) {
-                            foundOffset = right
-                            break
+                        if (foundOffset >= 0) {
+                            onPunctuationClick(foundOffset)
                         }
-                        searchRadius++
                     }
-                    if (foundOffset >= 0) {
-                        onPunctuationClick(foundOffset)
+                } else if (textReplaceMode) {
+                    // 文字替换：检查点击位置是否落在某条规则的匹配范围内
+                    for (rule in textReplaceRules) {
+                        val fromText = rule.first
+                        if (fromText.isEmpty()) continue
+                        var searchFrom = 0
+                        while (true) {
+                            val pos = text.indexOf(fromText, searchFrom)
+                            if (pos < 0) break
+                            val end = pos + fromText.length
+                            if (charOffset in pos until end) {
+                                onTextReplaceClick(pos)
+                                return@detectTapGestures
+                            }
+                            searchFrom = pos + 1
+                        }
                     }
                 }
             }
@@ -113,11 +135,11 @@ fun LazyItemScope.ReaderLayoutTextParagraph(
             .fillMaxWidth()
             .padding(horizontal = sidePadding)
             .then(
-                if (modifyHighlightMode && !punctuationEditMode) {
+                if (modifyHighlightMode && !punctuationEditMode && !textReplaceMode) {
                     Modifier.noRippleClickable { onParagraphClick() }
                 } else Modifier
             )
-            .then(punctuationModifier),
+            .then(tapModifier),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = horizontalAlignment
     ) {

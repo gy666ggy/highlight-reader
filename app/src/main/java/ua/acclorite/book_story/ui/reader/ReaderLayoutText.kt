@@ -52,6 +52,9 @@ fun LazyItemScope.ReaderLayoutText(
     punctuationFrom: String = "",
     onParagraphClick: () -> Unit = {},
     onPunctuationClick: (Int) -> Unit = {},
+    textReplaceMode: Boolean = false,
+    textReplaceRules: List<Triple<String, String, Boolean>> = emptyList(),
+    onTextReplaceClick: (Int) -> Unit = {},
     toolbarHidden: Boolean,
     openTranslator: (ReaderEvent.OnOpenTranslator) -> Unit,
     menuVisibility: (ReaderEvent.OnMenuVisibility) -> Unit
@@ -118,6 +121,9 @@ fun LazyItemScope.ReaderLayoutText(
                 punctuationFrom = punctuationFrom,
                 onParagraphClick = onParagraphClick,
                 onPunctuationClick = onPunctuationClick,
+                textReplaceMode = textReplaceMode,
+                textReplaceRules = textReplaceRules,
+                onTextReplaceClick = onTextReplaceClick,
                 toolbarHidden = toolbarHidden,
                 openTranslator = openTranslator,
                 menuVisibility = menuVisibility

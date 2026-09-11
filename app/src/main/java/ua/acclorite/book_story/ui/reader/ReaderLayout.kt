@@ -70,6 +70,9 @@ fun ReaderLayout(
     punctuationEditMode: Boolean = false,
     punctuationFrom: String = "",
     onPunctuationClick: (Int, Int) -> Unit = { _, _ -> },
+    textReplaceMode: Boolean = false,
+    textReplaceRules: List<Triple<String, String, Boolean>> = emptyList(),
+    onTextReplaceClick: (Int, Int) -> Unit = { _, _ -> },
     progress: String,
     progressBar: Boolean,
     progressBarPadding: Dp,
@@ -233,6 +236,11 @@ fun ReaderLayout(
                                     },
                                     onPunctuationClick = { charOffset ->
                                         onPunctuationClick(index, charOffset)
+                                    },
+                                    textReplaceMode = textReplaceMode,
+                                    textReplaceRules = textReplaceRules,
+                                    onTextReplaceClick = { charOffset ->
+                                        onTextReplaceClick(index, charOffset)
                                     },
                                     toolbarHidden = toolbarHidden,
                                     openTranslator = openTranslator,

@@ -235,6 +235,12 @@ fun ReaderScaffold(
     var punctuationTo by remember { mutableStateOf("。") }
     var punctuationAddNewline by remember { mutableStateOf(true) }
 
+    // 文字替换状态（支持多组替换规则）
+    var textReplaceMode by remember { mutableStateOf(false) }
+    var textReplaceDialogVisible by remember { mutableStateOf(false) }
+    // 替换规则列表：每条规则是 (原文字, 替换为, 是否换行)
+    var textReplaceRules by remember { mutableStateOf(listOf<Triple<String, String, Boolean>>()) }
+
     // 段落唯一键映射：列表索引 -> 段落唯一ID (Long类型)
     // 使用"章节索引 * 2^32 + 章内文本段落序号"生成唯一键
     val paragraphTextKeys: Map<Int, Long> = remember(baseText) {
@@ -273,7 +279,7 @@ fun ReaderScaffold(
     val defaultButtonOrder = listOf(
         "chapters", "bookmark", "nextBookmark", "search", "replace",
         "chapterReplace", "editChapter", "highlightColor", "modifyHighlight",
-        "punctuationEdit", "sort", "settings"
+        "punctuationEdit", "textReplace", "sort", "settings"
     )
     var buttonOrder by remember {
         val saved = globalPrefs.getString("bottom_button_order", "").orEmpty()
@@ -706,6 +712,73 @@ fun ReaderScaffold(
         ).show()
     }
 
+    fun applyTextReplace(index: Int, charOffset: Int) {
+        val entry = baseText.getOrNull(index) as? ReaderText.Text ?: return
+        val originalText = entry.line.text
+        if (charOffset < 0 || charOffset >= originalText.length) return
+
+        // 在点击位置匹配替换规则：找到包含点击位置的那一条规则
+        var matchedRule: Triple<String, String, Boolean>? = null
+        var matchStart = -1
+        for (rule in textReplaceRules) {
+            val fromText = rule.first
+            if (fromText.isEmpty()) continue
+            // 在 originalText 中搜索所有 fromText 出现的位置
+            var searchFrom = 0
+            while (true) {
+                val pos = originalText.indexOf(fromText, searchFrom)
+                if (pos < 0) break
+                val end = pos + fromText.length
+                // 检查点击位置是否落在这个匹配范围内
+                if (charOffset in pos until end) {
+                    matchedRule = rule
+                    matchStart = pos
+                    break
+                }
+                searchFrom = pos + 1
+            }
+            if (matchedRule != null) break
+        }
+
+        val rule = matchedRule ?: return
+        val fromText = rule.first
+        val toText = rule.second
+        val addNewline = rule.third
+
+        // 只替换点击位置的那一处匹配
+        val before = originalText.substring(0, matchStart)
+        val after = originalText.substring(matchStart + fromText.length)
+        val replacement = toText + if (addNewline) "\n" else ""
+        val newText = before + replacement + after
+
+        if (addNewline) {
+            val lines = newText.split("\n").filter { it.isNotBlank() }
+            if (lines.size <= 1) {
+                val updatedText = baseText.toMutableList()
+                updatedText[index] = ReaderText.Text(AnnotatedString(newText))
+                baseText = updatedText
+            } else {
+                val updatedText = baseText.toMutableList()
+                updatedText[index] = ReaderText.Text(AnnotatedString(lines[0]))
+                updatedText.addAll(index + 1, lines.drop(1).map { ReaderText.Text(AnnotatedString(it)) })
+                baseText = updatedText
+            }
+        } else {
+            val updatedText = baseText.toMutableList()
+            updatedText[index] = ReaderText.Text(AnnotatedString(newText))
+            baseText = updatedText
+        }
+
+        saveBaseTextToTxt(baseText)
+
+        android.widget.Toast.makeText(
+            context,
+            "已将「$fromText」替换为「$toText」" +
+                if (addNewline) "并换行" else "",
+            android.widget.Toast.LENGTH_SHORT
+        ).show()
+    }
+
     fun buildSearchResults() {
         val query = searchValue.trim()
         if (displayedText.isEmpty() || query.isBlank()) {
@@ -966,6 +1039,15 @@ fun ReaderScaffold(
                         }
                     },
                     punctuationEditActive = punctuationEditMode,
+                    textReplace = {
+                        if (textReplaceMode) {
+                            textReplaceMode = false
+                            modifyHighlightMode = false
+                        } else {
+                            textReplaceDialogVisible = true
+                        }
+                    },
+                    textReplaceActive = textReplaceMode,
                     chapterReplace = {
                         chapterSearchValue = ""
                         chapterReplaceValue = ""
@@ -1009,8 +1091,13 @@ fun ReaderScaffold(
                 onPunctuationClick = { index, charOffset ->
                     applyPunctuationEdit(index, charOffset)
                 },
+                textReplaceMode = textReplaceMode,
+                textReplaceRules = textReplaceRules,
+                onTextReplaceClick = { index, charOffset ->
+                    applyTextReplace(index, charOffset)
+                },
                 onParagraphColorChange = { key ->
-                    if (!punctuationEditMode) {
+                    if (!punctuationEditMode && !textReplaceMode) {
                         val currentColors = paragraphHighlightColors.toMutableMap()
                         if (selectedModifyColor != null) {
                             val newColor = selectedModifyColor!!.toArgb()
@@ -1567,7 +1654,7 @@ fun ReaderScaffold(
             )
         }
 
-        if (modifyHighlightMode && !punctuationEditMode && selectedModifyColor == null) {
+        if (modifyHighlightMode && !punctuationEditMode && !textReplaceMode && selectedModifyColor == null) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1580,7 +1667,7 @@ fun ReaderScaffold(
                     color = MaterialTheme.colorScheme.tertiary
                 )
             }
-        } else if (modifyHighlightMode && !punctuationEditMode && selectedModifyColor != null) {
+        } else if (modifyHighlightMode && !punctuationEditMode && !textReplaceMode && selectedModifyColor != null) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1701,6 +1788,125 @@ fun ReaderScaffold(
                 Text(
                     "标点编辑模式 - 点击段落将「$punctuationFrom」替换为「$punctuationTo」" +
                         if (punctuationAddNewline) "并换行" else "",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.tertiary
+                )
+            }
+        }
+
+        if (textReplaceDialogVisible) {
+            var trFromInput by remember { mutableStateOf("") }
+            var trToInput by remember { mutableStateOf("") }
+            var trAddNewline by remember { mutableStateOf(false) }
+
+            AlertDialog(
+                onDismissRequest = { textReplaceDialogVisible = false },
+                title = { Text("文字替换") },
+                text = {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            "添加替换规则，可添加多组。点击段落中匹配的文字进行替换",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        OutlinedTextField(
+                            value = trFromInput,
+                            onValueChange = { trFromInput = it },
+                            label = { Text("原文字") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        OutlinedTextField(
+                            value = trToInput,
+                            onValueChange = { trToInput = it },
+                            label = { Text("替换为") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Checkbox(
+                                checked = trAddNewline,
+                                onCheckedChange = { trAddNewline = it }
+                            )
+                            Text("替换后换行")
+                        }
+                        Button(
+                            onClick = {
+                                if (trFromInput.isNotBlank()) {
+                                    textReplaceRules = textReplaceRules + Triple(trFromInput, trToInput, trAddNewline)
+                                    trFromInput = ""
+                                    trToInput = ""
+                                    trAddNewline = false
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("添加规则")
+                        }
+                        if (textReplaceRules.isNotEmpty()) {
+                            HorizontalDivider()
+                            Text(
+                                "已添加 ${textReplaceRules.size} 条规则：",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            textReplaceRules.forEachIndexed { i, rule ->
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(
+                                        "${i + 1}. 「${rule.first}」→「${rule.second}」" +
+                                            if (rule.third) " +换行" else "",
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                    TextButton(
+                                        onClick = {
+                                            textReplaceRules = textReplaceRules.toMutableList().also { it.removeAt(i) }
+                                        }
+                                    ) {
+                                        Text("删除")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        enabled = textReplaceRules.isNotEmpty(),
+                        onClick = {
+                            textReplaceMode = true
+                            modifyHighlightMode = true
+                            textReplaceDialogVisible = false
+                        }
+                    ) {
+                        Text("开始")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { textReplaceDialogVisible = false }) {
+                        Text("取消")
+                    }
+                }
+            )
+        }
+
+        if (textReplaceMode) {
+            val rulesSummary = textReplaceRules.joinToString("，") { "「${it.first}」→「${it.second}」" }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    "文字替换模式 - $rulesSummary",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.tertiary
                 )
