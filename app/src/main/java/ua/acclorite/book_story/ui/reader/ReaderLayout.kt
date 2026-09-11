@@ -69,7 +69,7 @@ fun ReaderLayout(
     onParagraphColorChange: (Long) -> Unit = {},
     punctuationEditMode: Boolean = false,
     punctuationFrom: String = "",
-    onPunctuationClick: (Int, Int) -> Unit = { _, _ },
+    onPunctuationClick: (Int, Int) -> Unit = { _, _ -> },
     progress: String,
     progressBar: Boolean,
     progressBarPadding: Dp,
