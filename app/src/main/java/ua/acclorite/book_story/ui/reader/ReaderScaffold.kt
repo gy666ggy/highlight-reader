@@ -637,6 +637,31 @@ fun ReaderScaffold(
         }
     }
 
+    fun saveBaseTextToTxt(text: List<ReaderText>) {
+        if (!book.filePath.endsWith(".txt", ignoreCase = true)) return
+        val output = text.joinToString(separator = "\n") { line ->
+            when (line) {
+                is ReaderText.Chapter -> line.title
+                is ReaderText.Text -> line.line.text
+                is ReaderText.Separator -> "---"
+                is ReaderText.Image -> ""
+                is ReaderText.HtmlMedia -> ""
+            }
+        }
+        fileWriteScope.launch {
+            val result = runCatching {
+                writeOriginalTxtFile(context, book.filePath, output)
+            }
+            withContext(Dispatchers.Main) {
+                val msg = result.fold(
+                    onSuccess = { "已保存到原TXT文件" },
+                    onFailure = { "保存失败：${it.message ?: "未知错误"}" }
+                )
+                android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     fun applyPunctuationEdit(index: Int) {
         val entry = baseText.getOrNull(index) as? ReaderText.Text ?: return
         val originalText = entry.line.text
@@ -667,31 +692,6 @@ fun ReaderScaffold(
                 if (punctuationAddNewline) "并换行" else "",
             android.widget.Toast.LENGTH_SHORT
         ).show()
-    }
-
-    fun saveBaseTextToTxt(text: List<ReaderText>) {
-        if (!book.filePath.endsWith(".txt", ignoreCase = true)) return
-        val output = text.joinToString(separator = "\n") { line ->
-            when (line) {
-                is ReaderText.Chapter -> line.title
-                is ReaderText.Text -> line.line.text
-                is ReaderText.Separator -> "---"
-                is ReaderText.Image -> ""
-                is ReaderText.HtmlMedia -> ""
-            }
-        }
-        fileWriteScope.launch {
-            val result = runCatching {
-                writeOriginalTxtFile(context, book.filePath, output)
-            }
-            withContext(Dispatchers.Main) {
-                val msg = result.fold(
-                    onSuccess = { "已保存到原TXT文件" },
-                    onFailure = { "保存失败：${it.message ?: "未知错误"}" }
-                )
-                android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
-            }
-        }
     }
 
     fun buildSearchResults() {
