@@ -14,6 +14,8 @@ import androidx.core.net.toUri
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -1798,23 +1800,30 @@ fun ReaderScaffold(
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                            punctuationRules.forEachIndexed { i, rule ->
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Text(
-                                        "${i + 1}. 「${rule.first}」→「${rule.second}」" +
-                                            if (rule.third) " +换行" else " 不换行",
-                                        style = MaterialTheme.typography.bodySmall
-                                    )
-                                    TextButton(
-                                        onClick = {
-                                            punctuationRules = punctuationRules.toMutableList().also { it.removeAt(i) }
-                                        }
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = 200.dp)
+                                    .verticalScroll(rememberScrollState())
+                            ) {
+                                punctuationRules.forEachIndexed { i, rule ->
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        modifier = Modifier.fillMaxWidth()
                                     ) {
-                                        Text("删除")
+                                        Text(
+                                            "${i + 1}. 「${rule.first}」→「${rule.second}」" +
+                                                if (rule.third) " +换行" else " 不换行",
+                                            style = MaterialTheme.typography.bodySmall
+                                        )
+                                        TextButton(
+                                            onClick = {
+                                                punctuationRules = punctuationRules.toMutableList().also { it.removeAt(i) }
+                                            }
+                                        ) {
+                                            Text("删除")
+                                        }
                                     }
                                 }
                             }
@@ -1917,23 +1926,30 @@ fun ReaderScaffold(
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                            textReplaceRules.forEachIndexed { i, rule ->
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Text(
-                                        "${i + 1}. 「${rule.first}」→「${rule.second}」" +
-                                            if (rule.third) " +换行" else "",
-                                        style = MaterialTheme.typography.bodySmall
-                                    )
-                                    TextButton(
-                                        onClick = {
-                                            textReplaceRules = textReplaceRules.toMutableList().also { it.removeAt(i) }
-                                        }
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = 200.dp)
+                                    .verticalScroll(rememberScrollState())
+                            ) {
+                                textReplaceRules.forEachIndexed { i, rule ->
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        modifier = Modifier.fillMaxWidth()
                                     ) {
-                                        Text("删除")
+                                        Text(
+                                            "${i + 1}. 「${rule.first}」→「${rule.second}」" +
+                                                if (rule.third) " +换行" else "",
+                                            style = MaterialTheme.typography.bodySmall
+                                        )
+                                        TextButton(
+                                            onClick = {
+                                                textReplaceRules = textReplaceRules.toMutableList().also { it.removeAt(i) }
+                                            }
+                                        ) {
+                                            Text("删除")
+                                        }
                                     }
                                 }
                             }
