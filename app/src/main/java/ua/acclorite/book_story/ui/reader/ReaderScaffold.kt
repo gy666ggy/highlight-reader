@@ -662,21 +662,34 @@ fun ReaderScaffold(
         }
     }
 
-    fun applyPunctuationEdit(index: Int) {
+    fun applyPunctuationEdit(index: Int, charOffset: Int) {
         val entry = baseText.getOrNull(index) as? ReaderText.Text ?: return
         val originalText = entry.line.text
-        if (!originalText.contains(punctuationFrom)) return
+        val target = punctuationFrom.firstOrNull() ?: return
 
+        // 验证点击位置确实是目标标点
+        if (charOffset < 0 || charOffset >= originalText.length) return
+        if (originalText[charOffset] != target) return
+
+        // 只替换点击位置的那一个标点
+        val before = originalText.substring(0, charOffset)
+        val after = originalText.substring(charOffset + 1)
         val replacement = punctuationTo + if (punctuationAddNewline) "\n" else ""
-        val newText = originalText.replace(punctuationFrom, replacement)
+        val newText = before + replacement + after
 
         if (punctuationAddNewline) {
             val lines = newText.split("\n").filter { it.isNotBlank() }
-            if (lines.size <= 1) return
-            val updatedText = baseText.toMutableList()
-            updatedText[index] = ReaderText.Text(AnnotatedString(lines[0]))
-            updatedText.addAll(index + 1, lines.drop(1).map { ReaderText.Text(AnnotatedString(it)) })
-            baseText = updatedText
+            if (lines.size <= 1) {
+                // 没有产生新行，只替换标点
+                val updatedText = baseText.toMutableList()
+                updatedText[index] = ReaderText.Text(AnnotatedString(newText))
+                baseText = updatedText
+            } else {
+                val updatedText = baseText.toMutableList()
+                updatedText[index] = ReaderText.Text(AnnotatedString(lines[0]))
+                updatedText.addAll(index + 1, lines.drop(1).map { ReaderText.Text(AnnotatedString(it)) })
+                baseText = updatedText
+            }
         } else {
             val updatedText = baseText.toMutableList()
             updatedText[index] = ReaderText.Text(AnnotatedString(newText))
@@ -685,10 +698,9 @@ fun ReaderScaffold(
 
         saveBaseTextToTxt(baseText)
 
-        val count = originalText.count { punctuationFrom.firstOrNull()?.let { c -> it == c } ?: false }
         android.widget.Toast.makeText(
             context,
-            "已替换 $count 处「$punctuationFrom」→「$punctuationTo」" +
+            "已将「$punctuationFrom」替换为「$punctuationTo」" +
                 if (punctuationAddNewline) "并换行" else "",
             android.widget.Toast.LENGTH_SHORT
         ).show()
@@ -992,14 +1004,13 @@ fun ReaderScaffold(
                 paragraphHighlightColors = paragraphHighlightColors.mapValues { Color(it.value) },
                 modifyHighlightMode = modifyHighlightMode,
                 paragraphTextKeys = paragraphTextKeys,
+                punctuationEditMode = punctuationEditMode,
+                punctuationFrom = punctuationFrom,
+                onPunctuationClick = { index, charOffset ->
+                    applyPunctuationEdit(index, charOffset)
+                },
                 onParagraphColorChange = { key ->
-                    if (punctuationEditMode) {
-                        // 标点编辑模式：替换标点并换行
-                        val index = paragraphTextKeys.entries.firstOrNull { it.value == key }?.key
-                        if (index != null) {
-                            applyPunctuationEdit(index)
-                        }
-                    } else {
+                    if (!punctuationEditMode) {
                         val currentColors = paragraphHighlightColors.toMutableMap()
                         if (selectedModifyColor != null) {
                             val newColor = selectedModifyColor!!.toArgb()

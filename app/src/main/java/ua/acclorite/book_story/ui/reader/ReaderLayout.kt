@@ -67,6 +67,9 @@ fun ReaderLayout(
     modifyHighlightMode: Boolean = false,
     paragraphTextKeys: Map<Int, Long> = emptyMap(),
     onParagraphColorChange: (Long) -> Unit = {},
+    punctuationEditMode: Boolean = false,
+    punctuationFrom: String = "",
+    onPunctuationClick: (Int, Int) -> Unit = { _, _ },
     progress: String,
     progressBar: Boolean,
     progressBarPadding: Dp,
@@ -223,8 +226,13 @@ fun ReaderLayout(
                                     dialogueHighlightColor = dialogueHighlightColor,
                                     overrideColor = paragraphTextKeys[index]?.let { paragraphHighlightColors[it] },
                                     modifyHighlightMode = modifyHighlightMode,
+                                    punctuationEditMode = punctuationEditMode,
+                                    punctuationFrom = punctuationFrom,
                                     onParagraphClick = {
                                         paragraphTextKeys[index]?.let { onParagraphColorChange(it) }
+                                    },
+                                    onPunctuationClick = { charOffset ->
+                                        onPunctuationClick(index, charOffset)
                                     },
                                     toolbarHidden = toolbarHidden,
                                     openTranslator = openTranslator,

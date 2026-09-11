@@ -6,15 +6,19 @@
 
 package ua.acclorite.book_story.ui.reader
 
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyItemScope
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -51,23 +55,66 @@ fun LazyItemScope.ReaderLayoutTextParagraph(
     dialogueHighlightColor: Color,
     overrideColor: Color? = null,
     modifyHighlightMode: Boolean = false,
+    punctuationEditMode: Boolean = false,
+    punctuationFrom: String = "",
     onParagraphClick: () -> Unit = {},
+    onPunctuationClick: (Int) -> Unit = {},
     toolbarHidden: Boolean,
     openTranslator: (ReaderEvent.OnOpenTranslator) -> Unit,
     menuVisibility: (ReaderEvent.OnMenuVisibility) -> Unit
 ) {
     // 修改高亮：只对引号内容着色，非引号内容保持原色
     val effectiveDialogueColor = overrideColor ?: dialogueHighlightColor
+
+    // 在标点编辑模式下追踪 TextLayoutResult
+    val layoutResult = remember { mutableStateOf<TextLayoutResult?>(null) }
+
+    val punctuationModifier = if (punctuationEditMode) {
+        Modifier.pointerInput(paragraph) {
+            detectTapGestures { offset ->
+                val result = layoutResult.value ?: return@detectTapGestures
+                val charOffset = result.getOffsetForPosition(offset)
+                // 在点击位置附近查找最近的 punctuationFrom
+                val text = paragraph.line.text
+                val target = punctuationFrom.firstOrNull()
+                if (target != null) {
+                    // 从点击位置向两边搜索最近的标点
+                    var foundOffset = -1
+                    var searchRadius = 0
+                    while (searchRadius < text.length) {
+                        val left = charOffset - searchRadius
+                        val right = charOffset + searchRadius
+                        if (left >= 0 && text[left] == target) {
+                            foundOffset = left
+                            break
+                        }
+                        if (right < text.length && text[right] == target) {
+                            foundOffset = right
+                            break
+                        }
+                        searchRadius++
+                    }
+                    if (foundOffset >= 0) {
+                        onPunctuationClick(foundOffset)
+                    }
+                }
+            }
+        }
+    } else {
+        Modifier
+    }
+
     Column(
         modifier = Modifier
             .animateItem(fadeInSpec = null, fadeOutSpec = null)
             .fillMaxWidth()
             .padding(horizontal = sidePadding)
             .then(
-                if (modifyHighlightMode) {
+                if (modifyHighlightMode && !punctuationEditMode) {
                     Modifier.noRippleClickable { onParagraphClick() }
                 } else Modifier
-            ),
+            )
+            .then(punctuationModifier),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = horizontalAlignment
     ) {
@@ -117,7 +164,8 @@ fun LazyItemScope.ReaderLayoutTextParagraph(
                 lineBreak = LineBreak.Paragraph
             ),
             highlightText = highlightedReading,
-            highlightThickness = highlightedReadingThickness
+            highlightThickness = highlightedReadingThickness,
+            onTextLayout = { result -> layoutResult.value = result }
         )
     }
 }

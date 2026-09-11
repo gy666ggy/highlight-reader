@@ -48,7 +48,10 @@ fun LazyItemScope.ReaderLayoutText(
     dialogueHighlightColor: Color,
     overrideColor: Color? = null,
     modifyHighlightMode: Boolean = false,
+    punctuationEditMode: Boolean = false,
+    punctuationFrom: String = "",
     onParagraphClick: () -> Unit = {},
+    onPunctuationClick: (Int) -> Unit = {},
     toolbarHidden: Boolean,
     openTranslator: (ReaderEvent.OnOpenTranslator) -> Unit,
     menuVisibility: (ReaderEvent.OnMenuVisibility) -> Unit
@@ -111,7 +114,10 @@ fun LazyItemScope.ReaderLayoutText(
                 dialogueHighlightColor = dialogueHighlightColor,
                 overrideColor = overrideColor,
                 modifyHighlightMode = modifyHighlightMode,
+                punctuationEditMode = punctuationEditMode,
+                punctuationFrom = punctuationFrom,
                 onParagraphClick = onParagraphClick,
+                onPunctuationClick = onPunctuationClick,
                 toolbarHidden = toolbarHidden,
                 openTranslator = openTranslator,
                 menuVisibility = menuVisibility
