@@ -8,6 +8,7 @@ package ua.acclorite.book_story.ui.reader
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.SharedPreferences
 import android.net.Uri
 import androidx.core.net.toUri
 import androidx.compose.animation.slideInVertically
@@ -45,6 +46,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -232,13 +234,24 @@ fun ReaderScaffold(
     var punctuationEditMode by remember { mutableStateOf(false) }
     var punctuationEditDialogVisible by remember { mutableStateOf(false) }
     // 替换规则列表：每条规则是 (原标点, 替换为, 是否换行)
-    var punctuationRules by remember { mutableStateOf(listOf<Triple<String, String, Boolean>>()) }
+    var punctuationRules by remember {
+        mutableStateOf(loadRulesFromPrefs(globalPrefs, "punctuation_rules"))
+    }
+    // 规则变更时自动保存
+    LaunchedEffect(punctuationRules) {
+        saveRulesToPrefs(globalPrefs, "punctuation_rules", punctuationRules)
+    }
 
     // 文字替换状态（支持多组替换规则）
     var textReplaceMode by remember { mutableStateOf(false) }
     var textReplaceDialogVisible by remember { mutableStateOf(false) }
     // 替换规则列表：每条规则是 (原文字, 替换为, 是否换行)
-    var textReplaceRules by remember { mutableStateOf(listOf<Triple<String, String, Boolean>>()) }
+    var textReplaceRules by remember {
+        mutableStateOf(loadRulesFromPrefs(globalPrefs, "text_replace_rules"))
+    }
+    LaunchedEffect(textReplaceRules) {
+        saveRulesToPrefs(globalPrefs, "text_replace_rules", textReplaceRules)
+    }
 
     // 段落唯一键映射：列表索引 -> 段落唯一ID (Long类型)
     // 使用"章节索引 * 2^32 + 章内文本段落序号"生成唯一键
@@ -2455,4 +2468,32 @@ private fun writeOriginalTxtFile(context: Context, filePath: String, text: Strin
         "找不到可写入的原 TXT 文件（已检查 ${permissions.size} 个存储权限）。" +
             "请尝试重新从手机文件夹导入这本书，让 App 获取写入权限。"
     )
+}
+
+// ─── 规则持久化 ───────────────────────────────────────────────
+// 序列化格式：每条规则用 \u0002 分隔，规则内三段用 \u0001 分隔
+// 这样可避免用户输入的逗号、换行等字符干扰
+
+private fun loadRulesFromPrefs(
+    prefs: SharedPreferences,
+    key: String
+): List<Triple<String, String, Boolean>> {
+    val raw = prefs.getString(key, "") ?: ""
+    if (raw.isBlank()) return emptyList()
+    return raw.split("\u0002").mapNotNull { entry ->
+        val parts = entry.split("\u0001")
+        if (parts.size < 3) return@mapNotNull null
+        Triple(parts[0], parts[1], parts[2] == "1")
+    }
+}
+
+private fun saveRulesToPrefs(
+    prefs: SharedPreferences,
+    key: String,
+    rules: List<Triple<String, String, Boolean>>
+) {
+    val raw = rules.joinToString("\u0002") { (from, to, newline) ->
+        "$from\u0001$to\u0001${if (newline) "1" else "0"}"
+    }
+    prefs.edit().putString(key, raw).apply()
 }
