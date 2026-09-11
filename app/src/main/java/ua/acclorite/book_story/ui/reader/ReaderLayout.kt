@@ -68,7 +68,7 @@ fun ReaderLayout(
     paragraphTextKeys: Map<Int, Long> = emptyMap(),
     onParagraphColorChange: (Long) -> Unit = {},
     punctuationEditMode: Boolean = false,
-    punctuationFrom: String = "",
+    punctuationRules: List<Triple<String, String, Boolean>> = emptyList(),
     onPunctuationClick: (Int, Int) -> Unit = { _, _ -> },
     textReplaceMode: Boolean = false,
     textReplaceRules: List<Triple<String, String, Boolean>> = emptyList(),
@@ -230,7 +230,7 @@ fun ReaderLayout(
                                     overrideColor = paragraphTextKeys[index]?.let { paragraphHighlightColors[it] },
                                     modifyHighlightMode = modifyHighlightMode,
                                     punctuationEditMode = punctuationEditMode,
-                                    punctuationFrom = punctuationFrom,
+                                    punctuationRules = punctuationRules,
                                     onParagraphClick = {
                                         paragraphTextKeys[index]?.let { onParagraphColorChange(it) }
                                     },

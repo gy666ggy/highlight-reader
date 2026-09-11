@@ -228,12 +228,11 @@ fun ReaderScaffold(
         mutableStateOf<Map<Long, Int>>(loadParagraphColors(context, book.id))
     }
 
-    // 标点编辑状态
+    // 标点编辑状态（支持多组替换规则）
     var punctuationEditMode by remember { mutableStateOf(false) }
     var punctuationEditDialogVisible by remember { mutableStateOf(false) }
-    var punctuationFrom by remember { mutableStateOf("，") }
-    var punctuationTo by remember { mutableStateOf("。") }
-    var punctuationAddNewline by remember { mutableStateOf(true) }
+    // 替换规则列表：每条规则是 (原标点, 替换为, 是否换行)
+    var punctuationRules by remember { mutableStateOf(listOf<Triple<String, String, Boolean>>()) }
 
     // 文字替换状态（支持多组替换规则）
     var textReplaceMode by remember { mutableStateOf(false) }
@@ -671,22 +670,27 @@ fun ReaderScaffold(
     fun applyPunctuationEdit(index: Int, charOffset: Int) {
         val entry = baseText.getOrNull(index) as? ReaderText.Text ?: return
         val originalText = entry.line.text
-        val target = punctuationFrom.firstOrNull() ?: return
-
-        // 验证点击位置确实是目标标点
         if (charOffset < 0 || charOffset >= originalText.length) return
-        if (originalText[charOffset] != target) return
 
-        // 只替换点击位置的那一个标点
+        // 在点击位置匹配规则：找到从 charOffset 开始匹配的规则
+        val matchedRule = punctuationRules.firstOrNull { rule ->
+            val fromPunc = rule.first
+            fromPunc.isNotEmpty() && originalText.startsWith(fromPunc, charOffset)
+        }
+        val rule = matchedRule ?: return
+        val fromPunc = rule.first
+        val toPunc = rule.second
+        val addNewline = rule.third
+
+        // 只替换点击位置的那一个标点（charOffset 是匹配起始位置）
         val before = originalText.substring(0, charOffset)
-        val after = originalText.substring(charOffset + 1)
-        val replacement = punctuationTo + if (punctuationAddNewline) "\n" else ""
+        val after = originalText.substring(charOffset + fromPunc.length)
+        val replacement = toPunc + if (addNewline) "\n" else ""
         val newText = before + replacement + after
 
-        if (punctuationAddNewline) {
+        if (addNewline) {
             val lines = newText.split("\n").filter { it.isNotBlank() }
             if (lines.size <= 1) {
-                // 没有产生新行，只替换标点
                 val updatedText = baseText.toMutableList()
                 updatedText[index] = ReaderText.Text(AnnotatedString(newText))
                 baseText = updatedText
@@ -706,8 +710,8 @@ fun ReaderScaffold(
 
         android.widget.Toast.makeText(
             context,
-            "已将「$punctuationFrom」替换为「$punctuationTo」" +
-                if (punctuationAddNewline) "并换行" else "",
+            "已将「$fromPunc」替换为「$toPunc」" +
+                if (addNewline) "并换行" else "",
             android.widget.Toast.LENGTH_SHORT
         ).show()
     }
@@ -1087,7 +1091,7 @@ fun ReaderScaffold(
                 modifyHighlightMode = modifyHighlightMode,
                 paragraphTextKeys = paragraphTextKeys,
                 punctuationEditMode = punctuationEditMode,
-                punctuationFrom = punctuationFrom,
+                punctuationRules = punctuationRules,
                 onPunctuationClick = { index, charOffset ->
                     applyPunctuationEdit(index, charOffset)
                 },
@@ -1698,6 +1702,10 @@ fun ReaderScaffold(
         }
 
         if (punctuationEditDialogVisible) {
+            var peFromInput by remember { mutableStateOf("") }
+            var peToInput by remember { mutableStateOf("") }
+            var peAddNewline by remember { mutableStateOf(true) }
+
             AlertDialog(
                 onDismissRequest = { punctuationEditDialogVisible = false },
                 title = { Text("标点编辑") },
@@ -1706,46 +1714,44 @@ fun ReaderScaffold(
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Text(
-                            "选择要替换的标点，点击段落时自动替换并换行",
+                            "添加替换规则，可添加多组。点击段落中的标点进行替换",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            Text("原标点：")
-                            listOf("，", "；", "、", "：").forEach { p ->
+                            listOf("，", "；", "、", "：", "……").forEach { p ->
                                 FilterChip(
-                                    selected = punctuationFrom == p,
-                                    onClick = { punctuationFrom = p },
+                                    selected = peFromInput == p,
+                                    onClick = { peFromInput = p },
                                     label = { Text(p) }
                                 )
                             }
                         }
                         OutlinedTextField(
-                            value = punctuationFrom,
-                            onValueChange = { punctuationFrom = it },
+                            value = peFromInput,
+                            onValueChange = { peFromInput = it },
                             label = { Text("原标点（可自定义）") },
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            Text("替换为：")
-                            listOf("。", "！", "？", "；", "：").forEach { p ->
+                            listOf("。", "！", "？", "；", "：", "，").forEach { p ->
                                 FilterChip(
-                                    selected = punctuationTo == p,
-                                    onClick = { punctuationTo = p },
+                                    selected = peToInput == p,
+                                    onClick = { peToInput = p },
                                     label = { Text(p) }
                                 )
                             }
                         }
                         OutlinedTextField(
-                            value = punctuationTo,
-                            onValueChange = { punctuationTo = it },
+                            value = peToInput,
+                            onValueChange = { peToInput = it },
                             label = { Text("替换为（可自定义）") },
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
@@ -1754,19 +1760,63 @@ fun ReaderScaffold(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Checkbox(
-                                checked = punctuationAddNewline,
-                                onCheckedChange = { punctuationAddNewline = it }
+                                checked = peAddNewline,
+                                onCheckedChange = { peAddNewline = it }
                             )
                             Text("替换后换行")
+                        }
+                        Button(
+                            onClick = {
+                                if (peFromInput.isNotBlank()) {
+                                    punctuationRules = punctuationRules + Triple(peFromInput, peToInput, peAddNewline)
+                                    peFromInput = ""
+                                    peToInput = ""
+                                    peAddNewline = true
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("添加规则")
+                        }
+                        if (punctuationRules.isNotEmpty()) {
+                            HorizontalDivider()
+                            Text(
+                                "已添加 ${punctuationRules.size} 条规则：",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            punctuationRules.forEachIndexed { i, rule ->
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(
+                                        "${i + 1}. 「${rule.first}」→「${rule.second}」" +
+                                            if (rule.third) " +换行" else " 不换行",
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                    TextButton(
+                                        onClick = {
+                                            punctuationRules = punctuationRules.toMutableList().also { it.removeAt(i) }
+                                        }
+                                    ) {
+                                        Text("删除")
+                                    }
+                                }
+                            }
                         }
                     }
                 },
                 confirmButton = {
-                    Button(onClick = {
-                        punctuationEditMode = true
-                        modifyHighlightMode = true
-                        punctuationEditDialogVisible = false
-                    }) {
+                    Button(
+                        enabled = punctuationRules.isNotEmpty(),
+                        onClick = {
+                            punctuationEditMode = true
+                            modifyHighlightMode = true
+                            punctuationEditDialogVisible = false
+                        }
+                    ) {
                         Text("开始")
                     }
                 },
@@ -1779,6 +1829,7 @@ fun ReaderScaffold(
         }
 
         if (punctuationEditMode) {
+            val rulesSummary = punctuationRules.joinToString("，") { "「${it.first}」→「${it.second}」${if (it.third) "换行" else ""}" }
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1786,8 +1837,7 @@ fun ReaderScaffold(
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    "标点编辑模式 - 点击段落将「$punctuationFrom」替换为「$punctuationTo」" +
-                        if (punctuationAddNewline) "并换行" else "",
+                    "标点编辑模式 - $rulesSummary",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.tertiary
                 )

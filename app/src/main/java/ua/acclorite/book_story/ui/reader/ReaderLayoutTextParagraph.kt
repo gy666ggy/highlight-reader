@@ -57,7 +57,7 @@ fun LazyItemScope.ReaderLayoutTextParagraph(
     overrideColor: Color? = null,
     modifyHighlightMode: Boolean = false,
     punctuationEditMode: Boolean = false,
-    punctuationFrom: String = "",
+    punctuationRules: List<Triple<String, String, Boolean>> = emptyList(),
     onParagraphClick: () -> Unit = {},
     onPunctuationClick: (Int) -> Unit = {},
     textReplaceMode: Boolean = false,
@@ -74,7 +74,7 @@ fun LazyItemScope.ReaderLayoutTextParagraph(
     val layoutResult = remember { mutableStateOf<TextLayoutResult?>(null) }
 
     val tapModifier = if (punctuationEditMode || textReplaceMode) {
-        Modifier.pointerInput(paragraph, punctuationEditMode, textReplaceMode, textReplaceRules) {
+        Modifier.pointerInput(paragraph, punctuationEditMode, punctuationRules, textReplaceMode, textReplaceRules) {
             detectTapGestures { offset ->
                 val result = layoutResult.value ?: return@detectTapGestures
                 val text = paragraph.line.text
@@ -107,27 +107,22 @@ fun LazyItemScope.ReaderLayoutTextParagraph(
 
                 // 标点编辑（如果文字替换没匹配上）
                 if (!matched && punctuationEditMode) {
-                    val target = punctuationFrom.firstOrNull()
-                    if (target != null) {
-                        var foundOffset = -1
-                        var searchRadius = 0
-                        while (searchRadius < text.length) {
-                            val left = charOffset - searchRadius
-                            val right = charOffset + searchRadius
-                            if (left >= 0 && left < text.length && text[left] == target) {
-                                foundOffset = left
+                    for (rule in punctuationRules) {
+                        val fromPunc = rule.first
+                        if (fromPunc.isEmpty()) continue
+                        var searchFrom = 0
+                        while (true) {
+                            val pos = text.indexOf(fromPunc, searchFrom)
+                            if (pos < 0) break
+                            val end = pos + fromPunc.length
+                            if (charOffset in pos until end) {
+                                onPunctuationClick(pos)
+                                matched = true
                                 break
                             }
-                            if (right in 0 until text.length && text[right] == target) {
-                                foundOffset = right
-                                break
-                            }
-                            searchRadius++
+                            searchFrom = pos + 1
                         }
-                        if (foundOffset >= 0) {
-                            onPunctuationClick(foundOffset)
-                            matched = true
-                        }
+                        if (matched) break
                     }
                 }
 
