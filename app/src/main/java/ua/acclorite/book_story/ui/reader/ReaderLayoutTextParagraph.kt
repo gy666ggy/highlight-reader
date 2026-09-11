@@ -82,8 +82,31 @@ fun LazyItemScope.ReaderLayoutTextParagraph(
                 val charOffset = result.getOffsetForPosition(offset)
                     .coerceIn(0, text.length - 1)
 
-                if (punctuationEditMode) {
-                    // 标点编辑：从点击位置向两边搜索最近的标点
+                var matched = false
+
+                // 文字替换优先（更具体的匹配）
+                if (textReplaceMode) {
+                    for (rule in textReplaceRules) {
+                        val fromText = rule.first
+                        if (fromText.isEmpty()) continue
+                        var searchFrom = 0
+                        while (true) {
+                            val pos = text.indexOf(fromText, searchFrom)
+                            if (pos < 0) break
+                            val end = pos + fromText.length
+                            if (charOffset in pos until end) {
+                                onTextReplaceClick(pos)
+                                matched = true
+                                break
+                            }
+                            searchFrom = pos + 1
+                        }
+                        if (matched) break
+                    }
+                }
+
+                // 标点编辑（如果文字替换没匹配上）
+                if (!matched && punctuationEditMode) {
                     val target = punctuationFrom.firstOrNull()
                     if (target != null) {
                         var foundOffset = -1
@@ -103,25 +126,19 @@ fun LazyItemScope.ReaderLayoutTextParagraph(
                         }
                         if (foundOffset >= 0) {
                             onPunctuationClick(foundOffset)
+                            matched = true
                         }
                     }
-                } else if (textReplaceMode) {
-                    // 文字替换：检查点击位置是否落在某条规则的匹配范围内
-                    for (rule in textReplaceRules) {
-                        val fromText = rule.first
-                        if (fromText.isEmpty()) continue
-                        var searchFrom = 0
-                        while (true) {
-                            val pos = text.indexOf(fromText, searchFrom)
-                            if (pos < 0) break
-                            val end = pos + fromText.length
-                            if (charOffset in pos until end) {
-                                onTextReplaceClick(pos)
-                                return@detectTapGestures
-                            }
-                            searchFrom = pos + 1
-                        }
-                    }
+                }
+
+                // 没有匹配到任何标点/文字 → 切换功能栏
+                if (!matched) {
+                    menuVisibility(
+                        ReaderEvent.OnMenuVisibility(
+                            show = !showMenu,
+                            saveCheckpoint = true
+                        )
+                    )
                 }
             }
         }

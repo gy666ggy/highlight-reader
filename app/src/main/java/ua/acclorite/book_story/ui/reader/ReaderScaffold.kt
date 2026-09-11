@@ -1033,7 +1033,7 @@ fun ReaderScaffold(
                     punctuationEdit = {
                         if (punctuationEditMode) {
                             punctuationEditMode = false
-                            modifyHighlightMode = false
+                            if (!textReplaceMode) modifyHighlightMode = false
                         } else {
                             punctuationEditDialogVisible = true
                         }
@@ -1042,7 +1042,7 @@ fun ReaderScaffold(
                     textReplace = {
                         if (textReplaceMode) {
                             textReplaceMode = false
-                            modifyHighlightMode = false
+                            if (!punctuationEditMode) modifyHighlightMode = false
                         } else {
                             textReplaceDialogVisible = true
                         }
