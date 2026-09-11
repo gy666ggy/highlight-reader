@@ -37,6 +37,7 @@ import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -227,6 +228,13 @@ fun ReaderScaffold(
         mutableStateOf<Map<Long, Int>>(loadParagraphColors(context, book.id))
     }
 
+    // 标点编辑状态
+    var punctuationEditMode by remember { mutableStateOf(false) }
+    var punctuationEditDialogVisible by remember { mutableStateOf(false) }
+    var punctuationFrom by remember { mutableStateOf("，") }
+    var punctuationTo by remember { mutableStateOf("。") }
+    var punctuationAddNewline by remember { mutableStateOf(true) }
+
     // 段落唯一键映射：列表索引 -> 段落唯一ID (Long类型)
     // 使用"章节索引 * 2^32 + 章内文本段落序号"生成唯一键
     val paragraphTextKeys: Map<Int, Long> = remember(baseText) {
@@ -264,7 +272,8 @@ fun ReaderScaffold(
     var sortDialogVisible by remember { mutableStateOf(false) }
     val defaultButtonOrder = listOf(
         "chapters", "bookmark", "nextBookmark", "search", "replace",
-        "chapterReplace", "editChapter", "highlightColor", "modifyHighlight", "sort", "settings"
+        "chapterReplace", "editChapter", "highlightColor", "modifyHighlight",
+        "punctuationEdit", "sort", "settings"
     )
     var buttonOrder by remember {
         val saved = globalPrefs.getString("bottom_button_order", "").orEmpty()
@@ -628,6 +637,63 @@ fun ReaderScaffold(
         }
     }
 
+    fun applyPunctuationEdit(index: Int) {
+        val entry = baseText.getOrNull(index) as? ReaderText.Text ?: return
+        val originalText = entry.line.text
+        if (!originalText.contains(punctuationFrom)) return
+
+        val replacement = punctuationTo + if (punctuationAddNewline) "\n" else ""
+        val newText = originalText.replace(punctuationFrom, replacement)
+
+        if (punctuationAddNewline) {
+            val lines = newText.split("\n").filter { it.isNotBlank() }
+            if (lines.size <= 1) return
+            val updatedText = baseText.toMutableList()
+            updatedText[index] = ReaderText.Text(AnnotatedString(lines[0]))
+            updatedText.addAll(index + 1, lines.drop(1).map { ReaderText.Text(AnnotatedString(it)) })
+            baseText = updatedText
+        } else {
+            val updatedText = baseText.toMutableList()
+            updatedText[index] = ReaderText.Text(AnnotatedString(newText))
+            baseText = updatedText
+        }
+
+        saveBaseTextToTxt(baseText)
+
+        val count = originalText.count { punctuationFrom.firstOrNull()?.let { c -> it == c } ?: false }
+        android.widget.Toast.makeText(
+            context,
+            "已替换 $count 处「$punctuationFrom」→「$punctuationTo」" +
+                if (punctuationAddNewline) "并换行" else "",
+            android.widget.Toast.LENGTH_SHORT
+        ).show()
+    }
+
+    fun saveBaseTextToTxt(text: List<ReaderText>) {
+        if (!book.filePath.endsWith(".txt", ignoreCase = true)) return
+        val output = text.joinToString(separator = "\n") { line ->
+            when (line) {
+                is ReaderText.Chapter -> line.title
+                is ReaderText.Text -> line.line.text
+                is ReaderText.Separator -> "---"
+                is ReaderText.Image -> ""
+                is ReaderText.HtmlMedia -> ""
+            }
+        }
+        fileWriteScope.launch {
+            val result = runCatching {
+                writeOriginalTxtFile(context, book.filePath, output)
+            }
+            withContext(Dispatchers.Main) {
+                val msg = result.fold(
+                    onSuccess = { "已保存到原TXT文件" },
+                    onFailure = { "保存失败：${it.message ?: "未知错误"}" }
+                )
+                android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     fun buildSearchResults() {
         val query = searchValue.trim()
         if (displayedText.isEmpty() || query.isBlank()) {
@@ -879,6 +945,15 @@ fun ReaderScaffold(
                         }
                     },
                     modifyHighlightActive = modifyHighlightMode,
+                    punctuationEdit = {
+                        if (punctuationEditMode) {
+                            punctuationEditMode = false
+                            modifyHighlightMode = false
+                        } else {
+                            punctuationEditDialogVisible = true
+                        }
+                    },
+                    punctuationEditActive = punctuationEditMode,
                     chapterReplace = {
                         chapterSearchValue = ""
                         chapterReplaceValue = ""
@@ -918,19 +993,25 @@ fun ReaderScaffold(
                 modifyHighlightMode = modifyHighlightMode,
                 paragraphTextKeys = paragraphTextKeys,
                 onParagraphColorChange = { key ->
-                    val currentColors = paragraphHighlightColors.toMutableMap()
-                    if (selectedModifyColor != null) {
-                        val newColor = selectedModifyColor!!.toArgb()
-                        if (currentColors[key] == newColor) {
-                            // 再次点击相同颜色 → 取消高亮
-                            currentColors.remove(key)
-                        } else {
-                            currentColors[key] = newColor
+                    if (punctuationEditMode) {
+                        // 标点编辑模式：替换标点并换行
+                        val index = paragraphTextKeys.entries.firstOrNull { it.value == key }?.key
+                        if (index != null) {
+                            applyPunctuationEdit(index)
                         }
-                        persistParagraphColors(currentColors)
                     } else {
-                        // 没有选颜色就弹出颜色选择器
-                        modifyHighlightColorDialogVisible = true
+                        val currentColors = paragraphHighlightColors.toMutableMap()
+                        if (selectedModifyColor != null) {
+                            val newColor = selectedModifyColor!!.toArgb()
+                            if (currentColors[key] == newColor) {
+                                currentColors.remove(key)
+                            } else {
+                                currentColors[key] = newColor
+                            }
+                            persistParagraphColors(currentColors)
+                        } else {
+                            modifyHighlightColorDialogVisible = true
+                        }
                     }
                 },
                 progress = progress,
@@ -1475,7 +1556,7 @@ fun ReaderScaffold(
             )
         }
 
-        if (modifyHighlightMode && selectedModifyColor == null) {
+        if (modifyHighlightMode && !punctuationEditMode && selectedModifyColor == null) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1488,7 +1569,7 @@ fun ReaderScaffold(
                     color = MaterialTheme.colorScheme.tertiary
                 )
             }
-        } else if (modifyHighlightMode && selectedModifyColor != null) {
+        } else if (modifyHighlightMode && !punctuationEditMode && selectedModifyColor != null) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1515,6 +1596,103 @@ fun ReaderScaffold(
                 ) {
                     Text("换颜色")
                 }
+            }
+        }
+
+        if (punctuationEditDialogVisible) {
+            AlertDialog(
+                onDismissRequest = { punctuationEditDialogVisible = false },
+                title = { Text("标点编辑") },
+                text = {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            "选择要替换的标点，点击段落时自动替换并换行",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text("原标点：")
+                            listOf("，", "；", "、", "：").forEach { p ->
+                                FilterChip(
+                                    selected = punctuationFrom == p,
+                                    onClick = { punctuationFrom = p },
+                                    label = { Text(p) }
+                                )
+                            }
+                        }
+                        OutlinedTextField(
+                            value = punctuationFrom,
+                            onValueChange = { punctuationFrom = it },
+                            label = { Text("原标点（可自定义）") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text("替换为：")
+                            listOf("。", "！", "？", "；", "：").forEach { p ->
+                                FilterChip(
+                                    selected = punctuationTo == p,
+                                    onClick = { punctuationTo = p },
+                                    label = { Text(p) }
+                                )
+                            }
+                        }
+                        OutlinedTextField(
+                            value = punctuationTo,
+                            onValueChange = { punctuationTo = it },
+                            label = { Text("替换为（可自定义）") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Checkbox(
+                                checked = punctuationAddNewline,
+                                onCheckedChange = { punctuationAddNewline = it }
+                            )
+                            Text("替换后换行")
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(onClick = {
+                        punctuationEditMode = true
+                        modifyHighlightMode = true
+                        punctuationEditDialogVisible = false
+                    }) {
+                        Text("开始")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { punctuationEditDialogVisible = false }) {
+                        Text("取消")
+                    }
+                }
+            )
+        }
+
+        if (punctuationEditMode) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    "标点编辑模式 - 点击段落将「$punctuationFrom」替换为「$punctuationTo」" +
+                        if (punctuationAddNewline) "并换行" else "",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.tertiary
+                )
             }
         }
 

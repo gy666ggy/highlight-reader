@@ -76,6 +76,8 @@ fun ReaderBottomBar(
     highlightColor: () -> Unit,
     modifyHighlight: () -> Unit,
     modifyHighlightActive: Boolean = false,
+    punctuationEdit: () -> Unit,
+    punctuationEditActive: Boolean = false,
     chapterReplace: () -> Unit,
     sortButtons: () -> Unit,
     buttonOrder: List<String> = emptyList()
@@ -188,6 +190,7 @@ fun ReaderBottomBar(
                     btnId = btnId,
                     lockMenu = lockMenu,
                     modifyHighlightActive = modifyHighlightActive,
+                    punctuationEditActive = punctuationEditActive,
                     showChapters = showChapters,
                     toggleBookmark = toggleBookmark,
                     nextBookmark = nextBookmark,
@@ -197,6 +200,7 @@ fun ReaderBottomBar(
                     editChapter = editChapter,
                     highlightColor = highlightColor,
                     modifyHighlight = modifyHighlight,
+                    punctuationEdit = punctuationEdit,
                     sortButtons = sortButtons,
                     showSettings = showSettings
                 )
@@ -210,6 +214,7 @@ private fun ReaderBottomBarButton(
     btnId: String,
     lockMenu: Boolean,
     modifyHighlightActive: Boolean,
+    punctuationEditActive: Boolean,
     showChapters: () -> Unit,
     toggleBookmark: () -> Unit,
     nextBookmark: () -> Unit,
@@ -219,6 +224,7 @@ private fun ReaderBottomBarButton(
     editChapter: () -> Unit,
     highlightColor: () -> Unit,
     modifyHighlight: () -> Unit,
+    punctuationEdit: () -> Unit,
     sortButtons: () -> Unit,
     showSettings: () -> Unit
 ) {
@@ -232,6 +238,7 @@ private fun ReaderBottomBarButton(
         "editChapter" -> BottomAction("编辑本章", enabled = !lockMenu, onClick = editChapter)
         "highlightColor" -> BottomAction("高亮色", enabled = !lockMenu, onClick = highlightColor)
         "modifyHighlight" -> BottomAction("修改高亮", enabled = !lockMenu, active = modifyHighlightActive, onClick = modifyHighlight)
+        "punctuationEdit" -> BottomAction("标点编辑", enabled = !lockMenu, active = punctuationEditActive, onClick = punctuationEdit)
         "sort" -> BottomAction("排序", enabled = !lockMenu, onClick = sortButtons)
         "settings" -> BottomAction("设置", enabled = !lockMenu, onClick = showSettings)
     }
