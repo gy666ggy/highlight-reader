@@ -74,9 +74,11 @@ fun LazyItemScope.ReaderLayoutTextParagraph(
         Modifier.pointerInput(paragraph) {
             detectTapGestures { offset ->
                 val result = layoutResult.value ?: return@detectTapGestures
-                val charOffset = result.getOffsetForPosition(offset)
-                // 在点击位置附近查找最近的 punctuationFrom
                 val text = paragraph.line.text
+                if (text.isEmpty()) return@detectTapGestures
+                // getOffsetForPosition 可能返回等于 text.length 的值，需钳制到有效范围
+                var charOffset = result.getOffsetForPosition(offset)
+                    .coerceIn(0, text.length - 1)
                 val target = punctuationFrom.firstOrNull()
                 if (target != null) {
                     // 从点击位置向两边搜索最近的标点
@@ -85,11 +87,11 @@ fun LazyItemScope.ReaderLayoutTextParagraph(
                     while (searchRadius < text.length) {
                         val left = charOffset - searchRadius
                         val right = charOffset + searchRadius
-                        if (left >= 0 && text[left] == target) {
+                        if (left >= 0 && left < text.length && text[left] == target) {
                             foundOffset = left
                             break
                         }
-                        if (right < text.length && text[right] == target) {
+                        if (right in 0 until text.length && text[right] == target) {
                             foundOffset = right
                             break
                         }
