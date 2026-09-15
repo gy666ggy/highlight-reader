@@ -470,7 +470,8 @@ data class ReaderScreen(val bookId: Int) : Screen, Parcelable {
             showChaptersDrawer = screenModel::onEvent,
             dismissDrawer = screenModel::onEvent,
             navigateBack = screenModel::onEvent,
-            navigateToBookInfo = screenModel::onEvent
+            navigateToBookInfo = screenModel::onEvent,
+            refreshChapters = { screenModel.onEvent(ReaderEvent.OnLoadText) }
         )
     }
 }

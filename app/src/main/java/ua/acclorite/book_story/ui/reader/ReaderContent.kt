@@ -111,7 +111,8 @@ fun ReaderContent(
     showChaptersDrawer: (ReaderEvent.OnShowChaptersDrawer) -> Unit,
     dismissDrawer: (ReaderEvent.OnDismissDrawer) -> Unit,
     navigateToBookInfo: (ReaderEvent.OnNavigateToBookInfo) -> Unit,
-    navigateBack: (ReaderEvent.OnNavigateBack) -> Unit
+    navigateBack: (ReaderEvent.OnNavigateBack) -> Unit,
+    refreshChapters: () -> Unit = {}
 ) {
     ReaderBottomSheet(
         bottomSheet = bottomSheet,
@@ -208,7 +209,8 @@ fun ReaderContent(
         currentChapter = currentChapter,
         currentChapterProgress = currentChapterProgress,
         scrollToChapter = scrollToChapter,
-        dismissDrawer = dismissDrawer
+        dismissDrawer = dismissDrawer,
+        refreshChapters = refreshChapters
     )
 
     ReaderBackHandler(

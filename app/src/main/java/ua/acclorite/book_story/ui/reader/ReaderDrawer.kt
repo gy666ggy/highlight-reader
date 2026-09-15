@@ -19,7 +19,8 @@ fun ReaderDrawer(
     currentChapter: Chapter?,
     currentChapterProgress: Float,
     scrollToChapter: (ReaderEvent.OnScrollToChapter) -> Unit,
-    dismissDrawer: (ReaderEvent.OnDismissDrawer) -> Unit
+    dismissDrawer: (ReaderEvent.OnDismissDrawer) -> Unit,
+    refreshChapters: () -> Unit = {}
 ) {
     ReaderChaptersDrawer(
         show = drawer == ReaderScreen.CHAPTERS_DRAWER,
@@ -27,6 +28,7 @@ fun ReaderDrawer(
         currentChapter = currentChapter,
         currentChapterProgress = currentChapterProgress,
         scrollToChapter = scrollToChapter,
-        dismissDrawer = dismissDrawer
+        dismissDrawer = dismissDrawer,
+        refreshChapters = refreshChapters
     )
 }

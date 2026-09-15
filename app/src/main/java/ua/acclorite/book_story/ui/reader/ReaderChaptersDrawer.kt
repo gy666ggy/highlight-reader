@@ -7,16 +7,28 @@
 package ua.acclorite.book_story.ui.reader
 
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ArrowDropUp
+import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.res.stringResource
@@ -28,7 +40,6 @@ import ua.acclorite.book_story.presentation.reader.ReaderEvent
 import ua.acclorite.book_story.ui.common.components.common.StyledText
 import ua.acclorite.book_story.ui.common.components.modal_drawer.ModalDrawer
 import ua.acclorite.book_story.ui.common.components.modal_drawer.ModalDrawerSelectableItem
-import ua.acclorite.book_story.ui.common.components.modal_drawer.ModalDrawerTitleItem
 import ua.acclorite.book_story.ui.common.helpers.noRippleClickable
 import ua.acclorite.book_story.ui.reader.model.ExpandableChapter
 import ua.acclorite.book_story.ui.theme.ExpandingTransition
@@ -40,7 +51,8 @@ fun ReaderChaptersDrawer(
     currentChapter: Chapter?,
     currentChapterProgress: Float,
     scrollToChapter: (ReaderEvent.OnScrollToChapter) -> Unit,
-    dismissDrawer: (ReaderEvent.OnDismissDrawer) -> Unit
+    dismissDrawer: (ReaderEvent.OnDismissDrawer) -> Unit,
+    refreshChapters: () -> Unit = {}
 ) {
     val expandableChapters = remember(show, chapters, currentChapter) {
         mutableStateListOf<ExpandableChapter>().apply {
@@ -81,9 +93,38 @@ fun ReaderChaptersDrawer(
         startIndex = chapters.indexOf(currentChapter).takeIf { it != -1 } ?: 0,
         onDismissRequest = { dismissDrawer(ReaderEvent.OnDismissDrawer) },
         header = {
-            ModalDrawerTitleItem(
-                title = stringResource(id = R.string.chapters)
-            )
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.surfaceContainerLow)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 18.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Spacer(modifier = Modifier.height(9.dp))
+                    StyledText(
+                        text = stringResource(id = R.string.chapters),
+                        style = MaterialTheme.typography.titleLarge.copy(
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        ),
+                        modifier = Modifier.weight(1f)
+                    )
+                    IconButton(onClick = refreshChapters) {
+                        Icon(
+                            imageVector = Icons.Outlined.Refresh,
+                            contentDescription = "刷新目录",
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                HorizontalDivider()
+                Spacer(modifier = Modifier.height(4.dp))
+            }
         }
     ) {
         expandableChapters.forEach { expandableChapter ->
