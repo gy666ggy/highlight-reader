@@ -30,7 +30,7 @@ class TxtTextParser @Inject constructor(
             val readerText = mutableListOf<ReaderText>()
             var chapterAdded = false
             val chapterTitleRegex = Regex(
-                pattern = """^\s*((第\s*[零〇一二三四五六七八九十百千万\d]+\s*[章节卷回部集篇幕].*)|(Chapter\s+\d+.*)|(\d+\s*[.、]\s*.+))\s*$""",
+                pattern = """^\s*((第\s*[零〇一二三四五六七八九十百千万\d]+\s*[章节卷回部集篇幕][^，。！？]*)|(Chapter\s+\d+[^，。！？]*)|(\d+\s*[.、]\s*[^，。！？]+))\s*$""",
                 options = setOf(RegexOption.IGNORE_CASE)
             )
 
