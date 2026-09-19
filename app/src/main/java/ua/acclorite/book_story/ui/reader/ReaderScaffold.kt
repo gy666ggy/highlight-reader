@@ -1850,22 +1850,6 @@ fun ReaderScaffold(
             )
         }
 
-        if (punctuationEditMode) {
-            val rulesSummary = punctuationRules.joinToString("，") { "「${it.first}」→「${it.second}」${if (it.third) "换行" else ""}" }
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    "标点编辑模式 - $rulesSummary",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.tertiary
-                )
-            }
-        }
-
         if (textReplaceDialogVisible) {
             var trFromInput by remember { mutableStateOf("") }
             var trToInput by remember { mutableStateOf("") }
@@ -1974,22 +1958,6 @@ fun ReaderScaffold(
                     }
                 }
             )
-        }
-
-        if (textReplaceMode) {
-            val rulesSummary = textReplaceRules.joinToString("，") { "「${it.first}」→「${it.second}」" }
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    "文字替换模式 - $rulesSummary",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.tertiary
-                )
-            }
         }
 
         if (chapterReplaceDialogVisible) {
