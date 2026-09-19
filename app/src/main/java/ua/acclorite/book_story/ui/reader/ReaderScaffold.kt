@@ -229,7 +229,7 @@ fun ReaderScaffold(
         mutableStateOf(if (saved != -1) Color(saved) else null)
     }
     var paragraphHighlightColors by remember(book.id) {
-        mutableStateOf<Map<Long, Int>>(loadParagraphColors(context, book.id))
+        mutableStateOf<Map<String, Int>>(loadParagraphColors(context, book.id))
     }
 
     // 标点编辑状态（支持多组替换规则）
@@ -255,27 +255,22 @@ fun ReaderScaffold(
         saveRulesToPrefs(globalPrefs, "text_replace_rules", textReplaceRules)
     }
 
-    // 段落唯一键映射：列表索引 -> 段落唯一ID (Long类型)
-    // 使用"章节索引 * 2^32 + 章内文本段落序号"生成唯一键
-    val paragraphTextKeys: Map<Int, Long> = remember(baseText) {
-        var chapterIndex = 0
-        var paragraphInChapter = 0
+    // 段落内容指纹映射：列表索引 -> 内容指纹 (String)
+    // 使用章节标题 + 段落文本的前50个非空白字符作为指纹
+    // 这样即使段落序号因编辑变化，只要内容相同就能匹配回高亮
+    val paragraphTextKeys: Map<Int, String> = remember(baseText) {
+        var currentChapterTitle = ""
         baseText.mapIndexed { index, entry ->
             val key = when (entry) {
                 is ReaderText.Chapter -> {
-                    val k = (chapterIndex.toLong() shl 32) or (0xFFFFFFF0L)
-                    chapterIndex++
-                    paragraphInChapter = 0
-                    k
+                    currentChapterTitle = entry.title
+                    "ch:${currentChapterTitle.take(30)}"
                 }
                 is ReaderText.Text -> {
-                    val k = (chapterIndex.toLong() shl 32) or paragraphInChapter.toLong()
-                    paragraphInChapter++
-                    k
+                    val raw = entry.line.text.toString().replace(Regex("\\s"), "")
+                    "p:${currentChapterTitle.take(15)}:${raw.take(50)}"
                 }
-                else -> {
-                    (chapterIndex.toLong() shl 32) or (0xFF000000L or index.toLong().and(0xFFFFFFL))
-                }
+                else -> "o:$index"
             }
             index to key
         }.toMap()
@@ -396,7 +391,7 @@ fun ReaderScaffold(
             .apply()
     }
 
-    fun persistParagraphColors(colors: Map<Long, Int>) {
+    fun persistParagraphColors(colors: Map<String, Int>) {
         paragraphHighlightColors = colors
         saveParagraphColors(context, book.id, colors)
     }
@@ -2316,10 +2311,10 @@ private data class ChapterMatchResult(
 
 /**
  * 加载段落高亮颜色
- * 存储格式：每行 "key:colorArgb"
- * key 是 Long 类型（章节索引<<32 | 段落序号）
+ * 存储格式：每行 "fingerprint:colorArgb"
+ * fingerprint 是 String 类型（章节标题+段落内容前50字符）
  */
-private fun loadParagraphColors(context: Context, bookId: Int): Map<Long, Int> {
+private fun loadParagraphColors(context: Context, bookId: Int): Map<String, Int> {
     val dir = File(context.filesDir, "paragraph_colors")
     if (!dir.exists()) dir.mkdirs()
     val file = File(dir, "book_${bookId}.dat")
@@ -2329,18 +2324,20 @@ private fun loadParagraphColors(context: Context, bookId: Int): Map<Long, Int> {
         val raw = prefs.getString("paragraph_colors", "") ?: ""
         if (raw.isBlank()) return emptyMap()
         return raw.split(",").mapNotNull { entry ->
-            val parts = entry.split(":")
-            val key = parts.getOrNull(0)?.toLongOrNull() ?: return@mapNotNull null
-            val color = parts.getOrNull(1)?.toIntOrNull() ?: return@mapNotNull null
+            val idx = entry.lastIndexOf(":")
+            if (idx < 0) return@mapNotNull null
+            val key = entry.substring(0, idx)
+            val color = entry.substring(idx + 1).toIntOrNull() ?: return@mapNotNull null
             key to color
         }.toMap()
     }
     return runCatching {
         file.bufferedReader().useLines { lines ->
             lines.mapNotNull { line ->
-                val parts = line.split(":", limit = 2)
-                val key = parts.getOrNull(0)?.toLongOrNull() ?: return@mapNotNull null
-                val color = parts.getOrNull(1)?.toIntOrNull() ?: return@mapNotNull null
+                val idx = line.lastIndexOf(":")
+                if (idx < 0) return@mapNotNull null
+                val key = line.substring(0, idx)
+                val color = line.substring(idx + 1).toIntOrNull() ?: return@mapNotNull null
                 key to color
             }.toMap()
         }
@@ -2350,7 +2347,7 @@ private fun loadParagraphColors(context: Context, bookId: Int): Map<Long, Int> {
 /**
  * 保存段落高亮颜色（双重保险：文件 + SharedPreferences）
  */
-private fun saveParagraphColors(context: Context, bookId: Int, colors: Map<Long, Int>) {
+private fun saveParagraphColors(context: Context, bookId: Int, colors: Map<String, Int>) {
     val dir = File(context.filesDir, "paragraph_colors")
     if (!dir.exists()) dir.mkdirs()
 
