@@ -108,13 +108,17 @@ fun LazyItemScope.ReaderLayoutTextParagraph(
                         }
                     }
 
-                    // 3. 没有匹配 → 切换功能栏
-                    menuVisibility(
-                        ReaderEvent.OnMenuVisibility(
-                            show = !showMenu,
-                            saveCheckpoint = true
+                    // 3. 没有匹配 → 如果修改高亮模式开启则改色，否则切换功能栏
+                    if (modifyHighlightMode) {
+                        onParagraphClick()
+                    } else {
+                        menuVisibility(
+                            ReaderEvent.OnMenuVisibility(
+                                show = !showMenu,
+                                saveCheckpoint = true
+                            )
                         )
-                    )
+                    }
                     return@detectTapGestures
                 }
 
@@ -166,14 +170,18 @@ fun LazyItemScope.ReaderLayoutTextParagraph(
                     }
                 }
 
-                // 没有匹配到任何标点/文字 → 切换功能栏
+                // 没有匹配到任何标点/文字 → 如果修改高亮模式开启则改色，否则切换功能栏
                 if (!matched) {
-                    menuVisibility(
-                        ReaderEvent.OnMenuVisibility(
-                            show = !showMenu,
-                            saveCheckpoint = true
+                    if (modifyHighlightMode) {
+                        onParagraphClick()
+                    } else {
+                        menuVisibility(
+                            ReaderEvent.OnMenuVisibility(
+                                show = !showMenu,
+                                saveCheckpoint = true
+                            )
                         )
-                    )
+                    }
                 }
             }
         }
@@ -187,7 +195,7 @@ fun LazyItemScope.ReaderLayoutTextParagraph(
             .fillMaxWidth()
             .padding(horizontal = sidePadding)
             .then(
-                if (modifyHighlightMode && !punctuationEditMode && !textReplaceMode && !paragraphPrefixMode) {
+                if (modifyHighlightMode) {
                     Modifier.noRippleClickable { onParagraphClick() }
                 } else Modifier
             )

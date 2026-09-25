@@ -1116,7 +1116,6 @@ fun ReaderScaffold(
                     punctuationEdit = {
                         if (punctuationEditMode) {
                             punctuationEditMode = false
-                            if (!textReplaceMode) modifyHighlightMode = false
                         } else {
                             punctuationEditDialogVisible = true
                         }
@@ -1125,7 +1124,6 @@ fun ReaderScaffold(
                     textReplace = {
                         if (textReplaceMode) {
                             textReplaceMode = false
-                            if (!punctuationEditMode) modifyHighlightMode = false
                         } else {
                             textReplaceDialogVisible = true
                         }
@@ -1134,7 +1132,6 @@ fun ReaderScaffold(
                     paragraphPrefix = {
                         if (paragraphPrefixMode) {
                             paragraphPrefixMode = false
-                            if (!punctuationEditMode && !textReplaceMode) modifyHighlightMode = false
                         } else {
                             paragraphPrefixDialogVisible = true
                         }
@@ -1194,19 +1191,17 @@ fun ReaderScaffold(
                     applyParagraphPrefix(index, type, charOffset)
                 },
                 onParagraphColorChange = { key ->
-                    if (!punctuationEditMode && !textReplaceMode && !paragraphPrefixMode) {
-                        val currentColors = paragraphHighlightColors.toMutableMap()
-                        if (selectedModifyColor != null) {
-                            val newColor = selectedModifyColor!!.toArgb()
-                            if (currentColors[key] == newColor) {
-                                currentColors.remove(key)
-                            } else {
-                                currentColors[key] = newColor
-                            }
-                            persistParagraphColors(currentColors)
+                    val currentColors = paragraphHighlightColors.toMutableMap()
+                    if (selectedModifyColor != null) {
+                        val newColor = selectedModifyColor!!.toArgb()
+                        if (currentColors[key] == newColor) {
+                            currentColors.remove(key)
                         } else {
-                            modifyHighlightColorDialogVisible = true
+                            currentColors[key] = newColor
                         }
+                        persistParagraphColors(currentColors)
+                    } else {
+                        modifyHighlightColorDialogVisible = true
                     }
                 },
                 progress = progress,
