@@ -55,6 +55,8 @@ fun LazyItemScope.ReaderLayoutText(
     textReplaceMode: Boolean = false,
     textReplaceRules: List<Triple<String, String, Boolean>> = emptyList(),
     onTextReplaceClick: (Int) -> Unit = {},
+    paragraphPrefixMode: Boolean = false,
+    onParagraphPrefixClick: () -> Unit = {},
     toolbarHidden: Boolean,
     openTranslator: (ReaderEvent.OnOpenTranslator) -> Unit,
     menuVisibility: (ReaderEvent.OnMenuVisibility) -> Unit
@@ -124,6 +126,8 @@ fun LazyItemScope.ReaderLayoutText(
                 textReplaceMode = textReplaceMode,
                 textReplaceRules = textReplaceRules,
                 onTextReplaceClick = onTextReplaceClick,
+                paragraphPrefixMode = paragraphPrefixMode,
+                onParagraphPrefixClick = onParagraphPrefixClick,
                 toolbarHidden = toolbarHidden,
                 openTranslator = openTranslator,
                 menuVisibility = menuVisibility

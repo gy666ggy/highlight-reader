@@ -80,6 +80,8 @@ fun ReaderBottomBar(
     punctuationEditActive: Boolean = false,
     textReplace: () -> Unit,
     textReplaceActive: Boolean = false,
+    paragraphPrefix: () -> Unit,
+    paragraphPrefixActive: Boolean = false,
     chapterReplace: () -> Unit,
     sortButtons: () -> Unit,
     buttonOrder: List<String> = emptyList()
@@ -176,7 +178,8 @@ fun ReaderBottomBar(
 
         val defaultOrder = listOf(
             "chapters", "bookmark", "nextBookmark", "search", "replace",
-            "chapterReplace", "editChapter", "highlightColor", "modifyHighlight", "sort", "settings"
+            "chapterReplace", "editChapter", "highlightColor", "modifyHighlight",
+            "punctuationEdit", "textReplace", "paragraphPrefix", "sort", "settings"
         )
         val renderOrder = if (buttonOrder.isNotEmpty()) buttonOrder else defaultOrder
 
@@ -194,6 +197,7 @@ fun ReaderBottomBar(
                     modifyHighlightActive = modifyHighlightActive,
                     punctuationEditActive = punctuationEditActive,
                     textReplaceActive = textReplaceActive,
+                    paragraphPrefixActive = paragraphPrefixActive,
                     showChapters = showChapters,
                     toggleBookmark = toggleBookmark,
                     nextBookmark = nextBookmark,
@@ -205,6 +209,7 @@ fun ReaderBottomBar(
                     modifyHighlight = modifyHighlight,
                     punctuationEdit = punctuationEdit,
                     textReplace = textReplace,
+                    paragraphPrefix = paragraphPrefix,
                     sortButtons = sortButtons,
                     showSettings = showSettings
                 )
@@ -220,6 +225,7 @@ private fun ReaderBottomBarButton(
     modifyHighlightActive: Boolean,
     punctuationEditActive: Boolean,
     textReplaceActive: Boolean,
+    paragraphPrefixActive: Boolean,
     showChapters: () -> Unit,
     toggleBookmark: () -> Unit,
     nextBookmark: () -> Unit,
@@ -231,6 +237,7 @@ private fun ReaderBottomBarButton(
     modifyHighlight: () -> Unit,
     punctuationEdit: () -> Unit,
     textReplace: () -> Unit,
+    paragraphPrefix: () -> Unit,
     sortButtons: () -> Unit,
     showSettings: () -> Unit
 ) {
@@ -246,6 +253,7 @@ private fun ReaderBottomBarButton(
         "modifyHighlight" -> BottomAction("修改高亮", enabled = !lockMenu, active = modifyHighlightActive, onClick = modifyHighlight)
         "punctuationEdit" -> BottomAction("标点编辑", enabled = !lockMenu, active = punctuationEditActive, onClick = punctuationEdit)
         "textReplace" -> BottomAction("文字替换", enabled = !lockMenu, active = textReplaceActive, onClick = textReplace)
+        "paragraphPrefix" -> BottomAction("段首添加", enabled = !lockMenu, active = paragraphPrefixActive, onClick = paragraphPrefix)
         "sort" -> BottomAction("排序", enabled = !lockMenu, onClick = sortButtons)
         "settings" -> BottomAction("设置", enabled = !lockMenu, onClick = showSettings)
     }

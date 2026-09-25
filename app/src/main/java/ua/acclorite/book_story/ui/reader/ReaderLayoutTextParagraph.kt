@@ -63,6 +63,8 @@ fun LazyItemScope.ReaderLayoutTextParagraph(
     textReplaceMode: Boolean = false,
     textReplaceRules: List<Triple<String, String, Boolean>> = emptyList(),
     onTextReplaceClick: (Int) -> Unit = {},
+    paragraphPrefixMode: Boolean = false,
+    onParagraphPrefixClick: () -> Unit = {},
     toolbarHidden: Boolean,
     openTranslator: (ReaderEvent.OnOpenTranslator) -> Unit,
     menuVisibility: (ReaderEvent.OnMenuVisibility) -> Unit
@@ -73,11 +75,28 @@ fun LazyItemScope.ReaderLayoutTextParagraph(
     // 在标点编辑或文字替换模式下追踪 TextLayoutResult
     val layoutResult = remember { mutableStateOf<TextLayoutResult?>(null) }
 
-    val tapModifier = if (punctuationEditMode || textReplaceMode) {
-        Modifier.pointerInput(paragraph, punctuationEditMode, punctuationRules, textReplaceMode, textReplaceRules) {
+    val tapModifier = if (punctuationEditMode || textReplaceMode || paragraphPrefixMode) {
+        Modifier.pointerInput(paragraph, punctuationEditMode, punctuationRules, textReplaceMode, textReplaceRules, paragraphPrefixMode) {
             detectTapGestures { offset ->
                 val result = layoutResult.value ?: return@detectTapGestures
                 val text = paragraph.line.text
+
+                // 段首添加模式：点击段落开头区域（前10%宽度）即添加前缀
+                if (paragraphPrefixMode) {
+                    val width = result.size.width
+                    if (width > 0 && offset.x <= width * 0.1f) {
+                        onParagraphPrefixClick()
+                    } else {
+                        menuVisibility(
+                            ReaderEvent.OnMenuVisibility(
+                                show = !showMenu,
+                                saveCheckpoint = true
+                            )
+                        )
+                    }
+                    return@detectTapGestures
+                }
+
                 if (text.isEmpty()) return@detectTapGestures
                 val charOffset = result.getOffsetForPosition(offset)
                     .coerceIn(0, text.length - 1)
@@ -147,7 +166,7 @@ fun LazyItemScope.ReaderLayoutTextParagraph(
             .fillMaxWidth()
             .padding(horizontal = sidePadding)
             .then(
-                if (modifyHighlightMode && !punctuationEditMode && !textReplaceMode) {
+                if (modifyHighlightMode && !punctuationEditMode && !textReplaceMode && !paragraphPrefixMode) {
                     Modifier.noRippleClickable { onParagraphClick() }
                 } else Modifier
             )

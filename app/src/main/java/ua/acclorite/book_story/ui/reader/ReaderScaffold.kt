@@ -255,6 +255,16 @@ fun ReaderScaffold(
         saveRulesToPrefs(globalPrefs, "text_replace_rules", textReplaceRules)
     }
 
+    // 段首添加状态
+    var paragraphPrefixMode by remember { mutableStateOf(false) }
+    var paragraphPrefixDialogVisible by remember { mutableStateOf(false) }
+    var paragraphPrefixText by remember {
+        mutableStateOf(globalPrefs.getString("paragraph_prefix_text", "") ?: "")
+    }
+    LaunchedEffect(paragraphPrefixText) {
+        globalPrefs.edit().putString("paragraph_prefix_text", paragraphPrefixText).apply()
+    }
+
     // 段落内容指纹映射：列表索引 -> 内容指纹 (String)
     // 使用章节标题 + 段落文本的前50个非空白字符作为指纹
     // 这样即使段落序号因编辑变化，只要内容相同就能匹配回高亮
@@ -288,7 +298,7 @@ fun ReaderScaffold(
     val defaultButtonOrder = listOf(
         "chapters", "bookmark", "nextBookmark", "search", "replace",
         "chapterReplace", "editChapter", "highlightColor", "modifyHighlight",
-        "punctuationEdit", "textReplace", "sort", "settings"
+        "punctuationEdit", "textReplace", "paragraphPrefix", "sort", "settings"
     )
     var buttonOrder by remember {
         val saved = globalPrefs.getString("bottom_button_order", "").orEmpty()
@@ -793,6 +803,33 @@ fun ReaderScaffold(
         ).show()
     }
 
+    fun applyParagraphPrefix(index: Int) {
+        val entry = baseText.getOrNull(index) as? ReaderText.Text ?: return
+        val originalText = entry.line.text
+        val prefix = paragraphPrefixText
+        if (prefix.isEmpty()) {
+            android.widget.Toast.makeText(context, "请先设置要添加的文字", android.widget.Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        // 跳过开头的空白字符，在第一个非空白字符前插入
+        val leadingWhitespace = originalText.indexOfFirst { !it.isWhitespace() }
+        val insertPos = if (leadingWhitespace < 0) originalText.length else leadingWhitespace
+        val newText = originalText.substring(0, insertPos) + prefix + originalText.substring(insertPos)
+
+        val updatedText = baseText.toMutableList()
+        updatedText[index] = ReaderText.Text(AnnotatedString(newText))
+        baseText = updatedText
+
+        saveBaseTextToTxt(baseText)
+
+        android.widget.Toast.makeText(
+            context,
+            "已在段首添加「$prefix」",
+            android.widget.Toast.LENGTH_SHORT
+        ).show()
+    }
+
     fun buildSearchResults() {
         val query = searchValue.trim()
         if (displayedText.isEmpty() || query.isBlank()) {
@@ -1062,6 +1099,15 @@ fun ReaderScaffold(
                         }
                     },
                     textReplaceActive = textReplaceMode,
+                    paragraphPrefix = {
+                        if (paragraphPrefixMode) {
+                            paragraphPrefixMode = false
+                            if (!punctuationEditMode && !textReplaceMode) modifyHighlightMode = false
+                        } else {
+                            paragraphPrefixDialogVisible = true
+                        }
+                    },
+                    paragraphPrefixActive = paragraphPrefixMode,
                     chapterReplace = {
                         chapterSearchValue = ""
                         chapterReplaceValue = ""
@@ -1110,8 +1156,12 @@ fun ReaderScaffold(
                 onTextReplaceClick = { index, charOffset ->
                     applyTextReplace(index, charOffset)
                 },
+                paragraphPrefixMode = paragraphPrefixMode,
+                onParagraphPrefixClick = { index ->
+                    applyParagraphPrefix(index)
+                },
                 onParagraphColorChange = { key ->
-                    if (!punctuationEditMode && !textReplaceMode) {
+                    if (!punctuationEditMode && !textReplaceMode && !paragraphPrefixMode) {
                         val currentColors = paragraphHighlightColors.toMutableMap()
                         if (selectedModifyColor != null) {
                             val newColor = selectedModifyColor!!.toArgb()
@@ -1955,6 +2005,63 @@ fun ReaderScaffold(
             )
         }
 
+        if (paragraphPrefixDialogVisible) {
+            var prefixInput by remember { mutableStateOf(paragraphPrefixText) }
+
+            AlertDialog(
+                onDismissRequest = { paragraphPrefixDialogVisible = false },
+                title = { Text("段首添加") },
+                text = {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            "设置要添加到段首的文字。开启后，点击段落开头区域（前10%宽度）即可添加",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            listOf("：", "「", "『", "“", "（", "【").forEach { p ->
+                                FilterChip(
+                                    selected = prefixInput == p,
+                                    onClick = { prefixInput = p },
+                                    label = { Text(p) }
+                                )
+                            }
+                        }
+                        OutlinedTextField(
+                            value = prefixInput,
+                            onValueChange = { prefixInput = it },
+                            label = { Text("段首添加的文字（可自定义）") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        enabled = prefixInput.isNotBlank(),
+                        onClick = {
+                            paragraphPrefixText = prefixInput
+                            paragraphPrefixMode = true
+                            modifyHighlightMode = true
+                            paragraphPrefixDialogVisible = false
+                        }
+                    ) {
+                        Text("开始")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { paragraphPrefixDialogVisible = false }) {
+                        Text("取消")
+                    }
+                }
+            )
+        }
+
         if (chapterReplaceDialogVisible) {
             AlertDialog(
                 onDismissRequest = { chapterReplaceDialogVisible = false },
@@ -2049,6 +2156,9 @@ fun ReaderScaffold(
                 "editChapter" to "编辑本章",
                 "highlightColor" to "高亮色",
                 "modifyHighlight" to "修改高亮",
+                "punctuationEdit" to "标点编辑",
+                "textReplace" to "文字替换",
+                "paragraphPrefix" to "段首添加",
                 "sort" to "排序",
                 "settings" to "设置"
             )
