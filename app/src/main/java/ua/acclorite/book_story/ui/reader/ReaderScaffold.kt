@@ -255,14 +255,14 @@ fun ReaderScaffold(
         saveRulesToPrefs(globalPrefs, "text_replace_rules", textReplaceRules)
     }
 
-    // 段首添加状态
+    // 段首添加状态（支持多规则：段首添加 / 指定字符后添加）
     var paragraphPrefixMode by remember { mutableStateOf(false) }
     var paragraphPrefixDialogVisible by remember { mutableStateOf(false) }
-    var paragraphPrefixText by remember {
-        mutableStateOf(globalPrefs.getString("paragraph_prefix_text", "") ?: "")
+    var paragraphPrefixRules by remember {
+        mutableStateOf(loadParagraphPrefixRules(globalPrefs))
     }
-    LaunchedEffect(paragraphPrefixText) {
-        globalPrefs.edit().putString("paragraph_prefix_text", paragraphPrefixText).apply()
+    LaunchedEffect(paragraphPrefixRules) {
+        saveParagraphPrefixRules(globalPrefs, paragraphPrefixRules)
     }
 
     // 段落内容指纹映射：列表索引 -> 内容指纹 (String)
@@ -803,19 +803,50 @@ fun ReaderScaffold(
         ).show()
     }
 
-    fun applyParagraphPrefix(index: Int) {
+    /**
+     * 应用段首添加规则
+     * @param index 段落索引
+     * @param type "start" = 段首添加；"after" = 指定字符后添加
+     * @param charOffset 字符偏移量（仅 "after" 类型使用）
+     */
+    fun applyParagraphPrefix(index: Int, type: String, charOffset: Int) {
         val entry = baseText.getOrNull(index) as? ReaderText.Text ?: return
         val originalText = entry.line.text
-        val prefix = paragraphPrefixText
-        if (prefix.isEmpty()) {
-            android.widget.Toast.makeText(context, "请先设置要添加的文字", android.widget.Toast.LENGTH_SHORT).show()
+
+        // 根据类型筛选启用的规则
+        val matchedRules = paragraphPrefixRules.filter { it.enabled && it.type == type }
+        if (matchedRules.isEmpty()) {
+            android.widget.Toast.makeText(context, "没有可用的规则", android.widget.Toast.LENGTH_SHORT).show()
             return
         }
 
-        // 跳过开头的空白字符，在第一个非空白字符前插入
-        val leadingWhitespace = originalText.indexOfFirst { !it.isWhitespace() }
-        val insertPos = if (leadingWhitespace < 0) originalText.length else leadingWhitespace
-        val newText = originalText.substring(0, insertPos) + prefix + originalText.substring(insertPos)
+        var newText = originalText
+        val insertedTexts = mutableListOf<String>()
+
+        if (type == "start") {
+            // 段首添加：跳过开头空白字符，在第一个非空白字符前插入所有匹配规则的文字
+            val leadingWhitespace = originalText.indexOfFirst { !it.isWhitespace() }
+            val insertPos = if (leadingWhitespace < 0) originalText.length else leadingWhitespace
+            val combinedInsert = matchedRules.joinToString("") { it.insertText }
+            newText = originalText.substring(0, insertPos) + combinedInsert + originalText.substring(insertPos)
+            insertedTexts.add(combinedInsert)
+        } else if (type == "after") {
+            // 指定字符后添加：在点击位置的字符后插入
+            if (charOffset < 0 || charOffset >= originalText.length) return
+            val clickedChar = originalText[charOffset].toString()
+            // 只对匹配触发字符的规则生效
+            val afterRules = matchedRules.filter { it.trigger == clickedChar }
+            if (afterRules.isEmpty()) {
+                // 点击的字符没有匹配的规则，不处理
+                return
+            }
+            val combinedInsert = afterRules.joinToString("") { it.insertText }
+            val insertPos = charOffset + 1
+            newText = originalText.substring(0, insertPos) + combinedInsert + originalText.substring(insertPos)
+            insertedTexts.add(combinedInsert)
+        }
+
+        if (newText == originalText) return
 
         val updatedText = baseText.toMutableList()
         updatedText[index] = ReaderText.Text(AnnotatedString(newText))
@@ -823,9 +854,10 @@ fun ReaderScaffold(
 
         saveBaseTextToTxt(baseText)
 
+        val desc = if (type == "start") "段首" else "「${originalText[charOffset]}」后"
         android.widget.Toast.makeText(
             context,
-            "已在段首添加「$prefix」",
+            "已在${desc}添加「${insertedTexts.joinToString("")}」",
             android.widget.Toast.LENGTH_SHORT
         ).show()
     }
@@ -1157,8 +1189,9 @@ fun ReaderScaffold(
                     applyTextReplace(index, charOffset)
                 },
                 paragraphPrefixMode = paragraphPrefixMode,
-                onParagraphPrefixClick = { index ->
-                    applyParagraphPrefix(index)
+                paragraphPrefixRules = paragraphPrefixRules,
+                onParagraphPrefixClick = { index, type, charOffset ->
+                    applyParagraphPrefix(index, type, charOffset)
                 },
                 onParagraphColorChange = { key ->
                     if (!punctuationEditMode && !textReplaceMode && !paragraphPrefixMode) {
@@ -2006,7 +2039,9 @@ fun ReaderScaffold(
         }
 
         if (paragraphPrefixDialogVisible) {
-            var prefixInput by remember { mutableStateOf(paragraphPrefixText) }
+            var ruleType by remember { mutableStateOf("start") }
+            var ruleTrigger by remember { mutableStateOf("，") }
+            var ruleInsertText by remember { mutableStateOf("") }
 
             AlertDialog(
                 onDismissRequest = { paragraphPrefixDialogVisible = false },
@@ -2016,36 +2051,160 @@ fun ReaderScaffold(
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Text(
-                            "设置要添加到段首的文字。开启后，点击段落开头区域（前10%宽度）即可添加",
+                            "添加多条规则，可同时开启。支持：段首添加 / 指定字符后添加",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+
+                        // 规则类型选择
+                        Text("规则类型", style = MaterialTheme.typography.labelLarge)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            FilterChip(
+                                selected = ruleType == "start",
+                                onClick = { ruleType = "start" },
+                                label = { Text("段首添加") }
+                            )
+                            FilterChip(
+                                selected = ruleType == "after",
+                                onClick = { ruleType = "after" },
+                                label = { Text("字符后添加") }
+                            )
+                        }
+
+                        // 触发字符（仅 after 类型）
+                        if (ruleType == "after") {
+                            Text("触发字符（点击该字符后插入）", style = MaterialTheme.typography.labelLarge)
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                listOf("，", "。", "；", "、", "：", "！", "？").forEach { c ->
+                                    FilterChip(
+                                        selected = ruleTrigger == c,
+                                        onClick = { ruleTrigger = c },
+                                        label = { Text(c) }
+                                    )
+                                }
+                            }
+                            OutlinedTextField(
+                                value = ruleTrigger,
+                                onValueChange = { ruleTrigger = it },
+                                label = { Text("触发字符（可自定义）") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+
+                        // 插入文字
+                        Text("插入的文字", style = MaterialTheme.typography.labelLarge)
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             listOf("：", "「", "『", "“", "（", "【").forEach { p ->
                                 FilterChip(
-                                    selected = prefixInput == p,
-                                    onClick = { prefixInput = p },
+                                    selected = ruleInsertText == p,
+                                    onClick = { ruleInsertText = p },
                                     label = { Text(p) }
                                 )
                             }
                         }
                         OutlinedTextField(
-                            value = prefixInput,
-                            onValueChange = { prefixInput = it },
-                            label = { Text("段首添加的文字（可自定义）") },
+                            value = ruleInsertText,
+                            onValueChange = { ruleInsertText = it },
+                            label = { Text("要插入的文字（可自定义）") },
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
+
+                        Button(
+                            onClick = {
+                                if (ruleInsertText.isNotBlank() && (ruleType == "start" || ruleTrigger.isNotBlank())) {
+                                    paragraphPrefixRules = paragraphPrefixRules + ParagraphPrefixRule(
+                                        type = ruleType,
+                                        trigger = if (ruleType == "after") ruleTrigger else "",
+                                        insertText = ruleInsertText,
+                                        enabled = true
+                                    )
+                                    ruleInsertText = ""
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("添加规则")
+                        }
+
+                        // 已有规则列表
+                        if (paragraphPrefixRules.isNotEmpty()) {
+                            HorizontalDivider()
+                            Text(
+                                "已添加 ${paragraphPrefixRules.size} 条规则：",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = 200.dp)
+                                    .verticalScroll(rememberScrollState())
+                            ) {
+                                paragraphPrefixRules.forEachIndexed { i, rule ->
+                                    Card(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = if (rule.enabled)
+                                                MaterialTheme.colorScheme.primaryContainer
+                                            else
+                                                MaterialTheme.colorScheme.surfaceVariant
+                                        )
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(8.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Checkbox(
+                                                checked = rule.enabled,
+                                                onCheckedChange = { checked ->
+                                                    paragraphPrefixRules = paragraphPrefixRules.mapIndexed { idx, r ->
+                                                        if (idx == i) r.copy(enabled = checked) else r
+                                                    }
+                                                }
+                                            )
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    if (rule.type == "start") "段首添加"
+                                                    else "「${rule.trigger}」后添加",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                                Text(
+                                                    "插入：「${rule.insertText}」",
+                                                    style = MaterialTheme.typography.bodySmall
+                                                )
+                                            }
+                                            TextButton(
+                                                onClick = {
+                                                    paragraphPrefixRules = paragraphPrefixRules.toMutableList().also { it.removeAt(i) }
+                                                }
+                                            ) {
+                                                Text("删除", color = MaterialTheme.colorScheme.error)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 },
                 confirmButton = {
                     Button(
-                        enabled = prefixInput.isNotBlank(),
+                        enabled = paragraphPrefixRules.any { it.enabled },
                         onClick = {
-                            paragraphPrefixText = prefixInput
                             paragraphPrefixMode = true
                             modifyHighlightMode = true
                             paragraphPrefixDialogVisible = false
@@ -2587,4 +2746,42 @@ private fun saveRulesToPrefs(
         "$from\u0001$to\u0001${if (newline) "1" else "0"}"
     }
     prefs.edit().putString(key, raw).apply()
+}
+
+// ─── 段首添加规则 ───────────────────────────────────────────────
+
+/**
+ * 段首添加规则
+ * type: "start" = 段首添加；"after" = 指定字符后添加
+ * trigger: 仅 "after" 类型有效，匹配的字符（如 "，"）
+ * insertText: 要插入的文字
+ * enabled: 是否启用
+ */
+data class ParagraphPrefixRule(
+    val type: String,
+    val trigger: String,
+    val insertText: String,
+    val enabled: Boolean
+)
+
+private fun loadParagraphPrefixRules(prefs: SharedPreferences): List<ParagraphPrefixRule> {
+    val raw = prefs.getString("paragraph_prefix_rules", "") ?: ""
+    if (raw.isBlank()) return emptyList()
+    return raw.split("\u0002").mapNotNull { entry ->
+        val parts = entry.split("\u0001")
+        if (parts.size < 4) return@mapNotNull null
+        ParagraphPrefixRule(
+            type = parts[0],
+            trigger = parts[1],
+            insertText = parts[2],
+            enabled = parts[3] == "1"
+        )
+    }
+}
+
+private fun saveParagraphPrefixRules(prefs: SharedPreferences, rules: List<ParagraphPrefixRule>) {
+    val raw = rules.joinToString("\u0002") { rule ->
+        "${rule.type}\u0001${rule.trigger}\u0001${rule.insertText}\u0001${if (rule.enabled) "1" else "0"}"
+    }
+    prefs.edit().putString("paragraph_prefix_rules", raw).apply()
 }

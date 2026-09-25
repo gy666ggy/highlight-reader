@@ -64,7 +64,8 @@ fun LazyItemScope.ReaderLayoutTextParagraph(
     textReplaceRules: List<Triple<String, String, Boolean>> = emptyList(),
     onTextReplaceClick: (Int) -> Unit = {},
     paragraphPrefixMode: Boolean = false,
-    onParagraphPrefixClick: () -> Unit = {},
+    paragraphPrefixRules: List<ParagraphPrefixRule> = emptyList(),
+    onParagraphPrefixClick: (String, Int) -> Unit = { _, _ -> },
     toolbarHidden: Boolean,
     openTranslator: (ReaderEvent.OnOpenTranslator) -> Unit,
     menuVisibility: (ReaderEvent.OnMenuVisibility) -> Unit
@@ -76,24 +77,44 @@ fun LazyItemScope.ReaderLayoutTextParagraph(
     val layoutResult = remember { mutableStateOf<TextLayoutResult?>(null) }
 
     val tapModifier = if (punctuationEditMode || textReplaceMode || paragraphPrefixMode) {
-        Modifier.pointerInput(paragraph, punctuationEditMode, punctuationRules, textReplaceMode, textReplaceRules, paragraphPrefixMode) {
+        Modifier.pointerInput(paragraph, punctuationEditMode, punctuationRules, textReplaceMode, textReplaceRules, paragraphPrefixMode, paragraphPrefixRules) {
             detectTapGestures { offset ->
                 val result = layoutResult.value ?: return@detectTapGestures
                 val text = paragraph.line.text
 
-                // 段首添加模式：点击段落开头区域（前10%宽度）即添加前缀
+                // 段首添加模式
                 if (paragraphPrefixMode) {
                     val width = result.size.width
-                    if (width > 0 && offset.x <= width * 0.1f) {
-                        onParagraphPrefixClick()
-                    } else {
-                        menuVisibility(
-                            ReaderEvent.OnMenuVisibility(
-                                show = !showMenu,
-                                saveCheckpoint = true
-                            )
-                        )
+                    val enabledStartRules = paragraphPrefixRules.any { it.enabled && it.type == "start" }
+                    val enabledAfterTriggers = paragraphPrefixRules
+                        .filter { it.enabled && it.type == "after" }
+                        .map { it.trigger }
+                        .toSet()
+
+                    // 1. 点击段落开头区域（前10%宽度）→ 应用段首添加规则
+                    if (width > 0 && offset.x <= width * 0.1f && enabledStartRules) {
+                        onParagraphPrefixClick("start", -1)
+                        return@detectTapGestures
                     }
+
+                    // 2. 点击指定字符 → 应用字符后添加规则
+                    if (text.isNotEmpty()) {
+                        val charOffset = result.getOffsetForPosition(offset)
+                            .coerceIn(0, text.length - 1)
+                        val clickedChar = text[charOffset].toString()
+                        if (clickedChar in enabledAfterTriggers) {
+                            onParagraphPrefixClick("after", charOffset)
+                            return@detectTapGestures
+                        }
+                    }
+
+                    // 3. 没有匹配 → 切换功能栏
+                    menuVisibility(
+                        ReaderEvent.OnMenuVisibility(
+                            show = !showMenu,
+                            saveCheckpoint = true
+                        )
+                    )
                     return@detectTapGestures
                 }
 

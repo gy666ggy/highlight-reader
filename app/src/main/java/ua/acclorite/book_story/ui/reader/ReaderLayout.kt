@@ -74,7 +74,8 @@ fun ReaderLayout(
     textReplaceRules: List<Triple<String, String, Boolean>> = emptyList(),
     onTextReplaceClick: (Int, Int) -> Unit = { _, _ -> },
     paragraphPrefixMode: Boolean = false,
-    onParagraphPrefixClick: (Int) -> Unit = {},
+    paragraphPrefixRules: List<ParagraphPrefixRule> = emptyList(),
+    onParagraphPrefixClick: (Int, String, Int) -> Unit = { _, _, _ -> },
     progress: String,
     progressBar: Boolean,
     progressBarPadding: Dp,
@@ -245,8 +246,9 @@ fun ReaderLayout(
                                         onTextReplaceClick(index, charOffset)
                                     },
                                     paragraphPrefixMode = paragraphPrefixMode,
-                                    onParagraphPrefixClick = {
-                                        onParagraphPrefixClick(index)
+                                    paragraphPrefixRules = paragraphPrefixRules,
+                                    onParagraphPrefixClick = { type, charOffset ->
+                                        onParagraphPrefixClick(index, type, charOffset)
                                     },
                                     toolbarHidden = toolbarHidden,
                                     openTranslator = openTranslator,
