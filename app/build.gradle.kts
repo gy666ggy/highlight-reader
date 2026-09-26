@@ -29,12 +29,28 @@ android {
     signingConfigs {
         create("ciRelease") {
             val storeFileValue = System.getenv("ANDROID_KEYSTORE_FILE")
-            if (!storeFileValue.isNullOrBlank()) {
-                storeFile = file(storeFileValue)
+            val keystoreFile = if (!storeFileValue.isNullOrBlank()) file(storeFileValue) else null
+            val keystorePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+            val alias = System.getenv("ANDROID_KEY_ALIAS")
+            val keyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+
+            // 校验签名材料完整性，缺失则构建失败，避免静默产出未签名 APK
+            if (keystoreFile != null && keystoreFile.exists() && keystoreFile.length() > 0
+                && !keystorePassword.isNullOrBlank()
+                && !alias.isNullOrBlank()
+                && !keyPassword.isNullOrBlank()
+            ) {
+                storeFile = keystoreFile
+                storePassword = keystorePassword
+                keyAlias = alias
+                keyPassword = keyPassword
+            } else {
+                throw GradleException(
+                    "签名材料不完整：请检查 GitHub Secrets " +
+                            "(ANDROID_KEYSTORE_BASE64 / ANDROID_KEYSTORE_PASSWORD / " +
+                            "ANDROID_KEY_ALIAS / ANDROID_KEY_PASSWORD) 是否已配置"
+                )
             }
-            storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
-            keyAlias = System.getenv("ANDROID_KEY_ALIAS")
-            keyPassword = System.getenv("ANDROID_KEY_PASSWORD")
         }
     }
 
@@ -47,9 +63,8 @@ android {
         getByName("release") {
             isMinifyEnabled = false
             isShrinkResources = false
-            if (!System.getenv("ANDROID_KEYSTORE_FILE").isNullOrBlank()) {
-                signingConfig = signingConfigs.getByName("ciRelease")
-            }
+            // 仅在签名材料完整时应用签名配置，否则直接失败（由 ciRelease 抛出异常）
+            signingConfig = signingConfigs.getByName("ciRelease")
 
             proguardFiles("proguard-rules.pro")
         }
