@@ -73,11 +73,20 @@ fun LazyItemScope.ReaderLayoutTextParagraph(
     // 修改高亮：只对引号内容着色，非引号内容保持原色
     val effectiveDialogueColor = overrideColor ?: dialogueHighlightColor
 
-    // 在标点编辑或文字替换模式下追踪 TextLayoutResult
+    // 追踪 TextLayoutResult 用于点击定位字符
     val layoutResult = remember { mutableStateOf<TextLayoutResult?>(null) }
 
-    val tapModifier = if (punctuationEditMode || textReplaceMode || paragraphPrefixMode) {
-        Modifier.pointerInput(paragraph, punctuationEditMode, punctuationRules, textReplaceMode, textReplaceRules, paragraphPrefixMode, paragraphPrefixRules) {
+    val anyEditMode = punctuationEditMode || textReplaceMode || paragraphPrefixMode || modifyHighlightMode
+
+    // 编辑/高亮模式下的统一点击处理器：直接放在 StyledText 上，确保事件不被父级拦截
+    val editTapModifier = if (anyEditMode) {
+        Modifier.pointerInput(
+            paragraph,
+            modifyHighlightMode,
+            punctuationEditMode, punctuationRules,
+            textReplaceMode, textReplaceRules,
+            paragraphPrefixMode, paragraphPrefixRules
+        ) {
             detectTapGestures { offset ->
                 val result = layoutResult.value ?: return@detectTapGestures
                 val text = paragraph.line.text
@@ -89,7 +98,7 @@ fun LazyItemScope.ReaderLayoutTextParagraph(
                 var handled = false
 
                 // 1. 段首添加：点击段落开头区域（前10%宽度）→ 应用段首添加规则
-                if (paragraphPrefixMode) {
+                if (!handled && paragraphPrefixMode) {
                     val width = result.size.width
                     val enabledStartRules = paragraphPrefixRules.any { it.enabled && it.type == "start" }
                     if (width > 0 && offset.x <= width * 0.1f && enabledStartRules) {
@@ -152,18 +161,20 @@ fun LazyItemScope.ReaderLayoutTextParagraph(
                     }
                 }
 
-                // 5. 没有匹配到任何规则 → 修改高亮或切换功能栏
+                // 5. 修改高亮：点击段落任意位置 → 切换段落高亮色
+                if (!handled && modifyHighlightMode) {
+                    onParagraphClick()
+                    handled = true
+                }
+
+                // 6. 没有匹配到任何规则且不在高亮模式 → 切换功能栏
                 if (!handled) {
-                    if (modifyHighlightMode) {
-                        onParagraphClick()
-                    } else {
-                        menuVisibility(
-                            ReaderEvent.OnMenuVisibility(
-                                show = !showMenu,
-                                saveCheckpoint = true
-                            )
+                    menuVisibility(
+                        ReaderEvent.OnMenuVisibility(
+                            show = !showMenu,
+                            saveCheckpoint = true
                         )
-                    }
+                    )
                 }
             }
         }
@@ -175,20 +186,18 @@ fun LazyItemScope.ReaderLayoutTextParagraph(
         modifier = Modifier
             .animateItem(fadeInSpec = null, fadeOutSpec = null)
             .fillMaxWidth()
-            .padding(horizontal = sidePadding)
-            .then(
-                if (modifyHighlightMode) {
-                    Modifier.noRippleClickable { onParagraphClick() }
-                } else Modifier
-            )
-            .then(tapModifier),
+            .padding(horizontal = sidePadding),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = horizontalAlignment
     ) {
         StyledText(
             text = paragraph.line.withDialogueHighlight(effectiveDialogueColor),
             modifier = Modifier.then(
-                if (!modifyHighlightMode && !punctuationEditMode && !textReplaceMode && !paragraphPrefixMode && doubleClickTranslation && toolbarHidden) {
+                if (anyEditMode) {
+                    // 编辑/高亮模式：使用统一的 pointerInput 处理点击
+                    editTapModifier
+                } else if (doubleClickTranslation && toolbarHidden) {
+                    // 普通模式：双击翻译 + 单击切换功能栏
                     Modifier.noRippleClickable(
                         onDoubleClick = {
                             openTranslator(
@@ -207,7 +216,8 @@ fun LazyItemScope.ReaderLayoutTextParagraph(
                             )
                         }
                     )
-                } else if (!modifyHighlightMode && !punctuationEditMode && !textReplaceMode && !paragraphPrefixMode && !doubleClickTranslation && toolbarHidden) {
+                } else if (toolbarHidden) {
+                    // 普通模式：单击切换功能栏
                     Modifier.noRippleClickable {
                         menuVisibility(
                             ReaderEvent.OnMenuVisibility(
@@ -216,7 +226,9 @@ fun LazyItemScope.ReaderLayoutTextParagraph(
                             )
                         )
                     }
-                } else Modifier
+                } else {
+                    Modifier
+                }
             ),
             style = TextStyle(
                 fontFamily = fontFamily.font,
