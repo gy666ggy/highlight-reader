@@ -81,55 +81,37 @@ fun LazyItemScope.ReaderLayoutTextParagraph(
             detectTapGestures { offset ->
                 val result = layoutResult.value ?: return@detectTapGestures
                 val text = paragraph.line.text
+                if (text.isEmpty()) return@detectTapGestures
 
-                // 段首添加模式
+                val charOffset = result.getOffsetForPosition(offset)
+                    .coerceIn(0, text.length - 1)
+                val clickedChar = text[charOffset].toString()
+                var handled = false
+
+                // 1. 段首添加：点击段落开头区域（前10%宽度）→ 应用段首添加规则
                 if (paragraphPrefixMode) {
                     val width = result.size.width
                     val enabledStartRules = paragraphPrefixRules.any { it.enabled && it.type == "start" }
+                    if (width > 0 && offset.x <= width * 0.1f && enabledStartRules) {
+                        onParagraphPrefixClick("start", -1)
+                        handled = true
+                    }
+                }
+
+                // 2. 段首添加：点击指定字符 → 应用字符后添加规则
+                if (!handled && paragraphPrefixMode) {
                     val enabledAfterTriggers = paragraphPrefixRules
                         .filter { it.enabled && it.type == "after" }
                         .map { it.trigger }
                         .toSet()
-
-                    // 1. 点击段落开头区域（前10%宽度）→ 应用段首添加规则
-                    if (width > 0 && offset.x <= width * 0.1f && enabledStartRules) {
-                        onParagraphPrefixClick("start", -1)
-                        return@detectTapGestures
+                    if (clickedChar in enabledAfterTriggers) {
+                        onParagraphPrefixClick("after", charOffset)
+                        handled = true
                     }
-
-                    // 2. 点击指定字符 → 应用字符后添加规则
-                    if (text.isNotEmpty()) {
-                        val charOffset = result.getOffsetForPosition(offset)
-                            .coerceIn(0, text.length - 1)
-                        val clickedChar = text[charOffset].toString()
-                        if (clickedChar in enabledAfterTriggers) {
-                            onParagraphPrefixClick("after", charOffset)
-                            return@detectTapGestures
-                        }
-                    }
-
-                    // 3. 没有匹配 → 如果修改高亮模式开启则改色，否则切换功能栏
-                    if (modifyHighlightMode) {
-                        onParagraphClick()
-                    } else {
-                        menuVisibility(
-                            ReaderEvent.OnMenuVisibility(
-                                show = !showMenu,
-                                saveCheckpoint = true
-                            )
-                        )
-                    }
-                    return@detectTapGestures
                 }
 
-                if (text.isEmpty()) return@detectTapGestures
-                val charOffset = result.getOffsetForPosition(offset)
-                    .coerceIn(0, text.length - 1)
-
-                var matched = false
-
-                // 文字替换优先（更具体的匹配）
-                if (textReplaceMode) {
+                // 3. 文字替换（更具体的匹配优先）
+                if (!handled && textReplaceMode) {
                     for (rule in textReplaceRules) {
                         val fromText = rule.first
                         if (fromText.isEmpty()) continue
@@ -140,17 +122,17 @@ fun LazyItemScope.ReaderLayoutTextParagraph(
                             val end = pos + fromText.length
                             if (charOffset in pos until end) {
                                 onTextReplaceClick(pos)
-                                matched = true
+                                handled = true
                                 break
                             }
                             searchFrom = pos + 1
                         }
-                        if (matched) break
+                        if (handled) break
                     }
                 }
 
-                // 标点编辑（如果文字替换没匹配上）
-                if (!matched && punctuationEditMode) {
+                // 4. 标点编辑
+                if (!handled && punctuationEditMode) {
                     for (rule in punctuationRules) {
                         val fromPunc = rule.first
                         if (fromPunc.isEmpty()) continue
@@ -161,17 +143,17 @@ fun LazyItemScope.ReaderLayoutTextParagraph(
                             val end = pos + fromPunc.length
                             if (charOffset in pos until end) {
                                 onPunctuationClick(pos)
-                                matched = true
+                                handled = true
                                 break
                             }
                             searchFrom = pos + 1
                         }
-                        if (matched) break
+                        if (handled) break
                     }
                 }
 
-                // 没有匹配到任何标点/文字 → 如果修改高亮模式开启则改色，否则切换功能栏
-                if (!matched) {
+                // 5. 没有匹配到任何规则 → 修改高亮或切换功能栏
+                if (!handled) {
                     if (modifyHighlightMode) {
                         onParagraphClick()
                     } else {
