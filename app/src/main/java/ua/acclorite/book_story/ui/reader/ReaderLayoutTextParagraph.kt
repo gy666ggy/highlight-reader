@@ -188,7 +188,7 @@ fun LazyItemScope.ReaderLayoutTextParagraph(
         StyledText(
             text = paragraph.line.withDialogueHighlight(effectiveDialogueColor),
             modifier = Modifier.then(
-                if (!modifyHighlightMode && doubleClickTranslation && toolbarHidden) {
+                if (!modifyHighlightMode && !punctuationEditMode && !textReplaceMode && !paragraphPrefixMode && doubleClickTranslation && toolbarHidden) {
                     Modifier.noRippleClickable(
                         onDoubleClick = {
                             openTranslator(
@@ -207,7 +207,7 @@ fun LazyItemScope.ReaderLayoutTextParagraph(
                             )
                         }
                     )
-                } else if (!modifyHighlightMode && !doubleClickTranslation && toolbarHidden) {
+                } else if (!modifyHighlightMode && !punctuationEditMode && !textReplaceMode && !paragraphPrefixMode && !doubleClickTranslation && toolbarHidden) {
                     Modifier.noRippleClickable {
                         menuVisibility(
                             ReaderEvent.OnMenuVisibility(
