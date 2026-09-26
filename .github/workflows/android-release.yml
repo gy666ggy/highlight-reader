@@ -39,20 +39,37 @@ jobs:
       - name: 配置 Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: 还原签名证书
+      - name: 还原签名证书（缺失则自动生成临时密钥）
         run: |
           mkdir -p app/release
-          printf "%s" "$ANDROID_KEYSTORE_BASE64" | base64 --decode > app/release/highlight-reader-release.jks
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "使用已配置的签名密钥"
+            printf "%s" "$ANDROID_KEYSTORE_BASE64" | base64 --decode > app/release/highlight-reader-release.jks
+            echo "ANDROID_KEYSTORE_PASSWORD=$ANDROID_KEYSTORE_PASSWORD" >> $GITHUB_ENV
+            echo "ANDROID_KEY_ALIAS=$ANDROID_KEY_ALIAS" >> $GITHUB_ENV
+            echo "ANDROID_KEY_PASSWORD=$ANDROID_KEY_PASSWORD" >> $GITHUB_ENV
+          else
+            echo "未检测到签名密钥 Secrets，自动生成临时签名密钥"
+            keytool -genkeypair -v \
+              -keystore app/release/highlight-reader-release.jks \
+              -alias highlight-reader \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -storepass highlight-reader-auto \
+              -keypass highlight-reader-auto \
+              -dname "CN=highlight-reader, OU=auto, O=auto, L=auto, S=auto, C=CN"
+            echo "ANDROID_KEYSTORE_PASSWORD=highlight-reader-auto" >> $GITHUB_ENV
+            echo "ANDROID_KEY_ALIAS=highlight-reader" >> $GITHUB_ENV
+            echo "ANDROID_KEY_PASSWORD=highlight-reader-auto" >> $GITHUB_ENV
+          fi
+          echo "ANDROID_KEYSTORE_FILE=release/highlight-reader-release.jks" >> $GITHUB_ENV
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-
-      - name: 构建 Release APK
-        run: ./gradlew :app:assembleRelease --stacktrace
-        env:
-          ANDROID_KEYSTORE_FILE: release/highlight-reader-release.jks
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+
+      - name: 构建 Release APK
+        run: ./gradlew :app:assembleRelease --stacktrace
 
       - name: 获取版本号
         id: get_version
