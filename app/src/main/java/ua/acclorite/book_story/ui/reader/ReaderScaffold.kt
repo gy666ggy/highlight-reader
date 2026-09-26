@@ -1908,7 +1908,6 @@ fun ReaderScaffold(
                         enabled = punctuationRules.isNotEmpty(),
                         onClick = {
                             punctuationEditMode = true
-                            modifyHighlightMode = true
                             punctuationEditDialogVisible = false
                         }
                     ) {
@@ -2018,7 +2017,6 @@ fun ReaderScaffold(
                         enabled = textReplaceRules.isNotEmpty(),
                         onClick = {
                             textReplaceMode = true
-                            modifyHighlightMode = true
                             textReplaceDialogVisible = false
                         }
                     ) {
@@ -2201,7 +2199,6 @@ fun ReaderScaffold(
                         enabled = paragraphPrefixRules.any { it.enabled },
                         onClick = {
                             paragraphPrefixMode = true
-                            modifyHighlightMode = true
                             paragraphPrefixDialogVisible = false
                         }
                     ) {
