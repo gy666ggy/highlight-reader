@@ -29,21 +29,21 @@ android {
     signingConfigs {
         create("ciRelease") {
             val storeFileValue = System.getenv("ANDROID_KEYSTORE_FILE")
-            val keystoreFile = if (!storeFileValue.isNullOrBlank()) file(storeFileValue) else null
-            val keystorePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
-            val alias = System.getenv("ANDROID_KEY_ALIAS")
-            val keyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+            val ksFile = if (!storeFileValue.isNullOrBlank()) file(storeFileValue) else null
+            val ksPassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+            val ksAlias = System.getenv("ANDROID_KEY_ALIAS")
+            val ksKeyPassword = System.getenv("ANDROID_KEY_PASSWORD")
 
             // 校验签名材料完整性，缺失则构建失败，避免静默产出未签名 APK
-            if (keystoreFile != null && keystoreFile.exists() && keystoreFile.length() > 0
-                && !keystorePassword.isNullOrBlank()
-                && !alias.isNullOrBlank()
-                && !keyPassword.isNullOrBlank()
+            if (ksFile != null && ksFile.exists() && ksFile.length() > 0
+                && !ksPassword.isNullOrBlank()
+                && !ksAlias.isNullOrBlank()
+                && !ksKeyPassword.isNullOrBlank()
             ) {
-                storeFile = keystoreFile
-                storePassword = keystorePassword
-                keyAlias = alias
-                keyPassword = keyPassword
+                storeFile = ksFile
+                storePassword = ksPassword
+                keyAlias = ksAlias
+                keyPassword = ksKeyPassword
             } else {
                 throw GradleException(
                     "签名材料不完整：请检查 GitHub Secrets " +
