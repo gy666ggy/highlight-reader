@@ -34,11 +34,11 @@ class TxtTextParser @Inject constructor(
             val chapterTitleRegex = Regex(
                 pattern = """^[\s\u3000\u200B\u200C\u200D\uFEFF]*""" +
                     """(""" +
-                    // 第X章/节/... 后必须跟 空格/标点/行尾，避免正文"第二章的..."被误判
-                    """(第\s*[零〇一二三四五六七八九十百千万\d０-９]+\s*[章节卷回部集篇幕]([\s，。！？：；、""''（）【】《》].*|$))""" +
-                    """|(Chapter\s+\d+([\s，。！？：；、].*|$))""" +
+                    // 第X章：章后不能直接跟"的"（正文标志），标题可含任意标点和文字
+                    """(第\s*[零〇一二三四五六七八九十百千万\d０-９]+\s*[章节卷回部集篇幕](?!的).*)""" +
+                    """|(Chapter\s+\d+.*)""" +
                     """|(\d+\s*[.、]\s*.+)""" +
-                    """|(楔子|引子|序章|序言|前言|引言|尾声|后记|番外|外传|终章|大结局)([\s，。！？：；、].*|$)""" +
+                    """|(楔子|引子|序章|序言|前言|引言|尾声|后记|番外|外传|终章|大结局).*""" +
                     """)""" +
                     """$""",
                 options = setOf(RegexOption.IGNORE_CASE)
@@ -58,7 +58,7 @@ class TxtTextParser @Inject constructor(
                                     val cleanLine = line.clearAllMarkdown()
                                         .replace(Regex("[\u3000\u200B\u200C\u200D\uFEFF]"), "")
                                         .trim()
-                                    if (cleanLine.isNotBlank() && chapterTitleRegex.matches(cleanLine)) {
+                                    if (cleanLine.isNotBlank() && cleanLine.length <= 50 && chapterTitleRegex.matches(cleanLine)) {
                                         readerText.add(
                                             ReaderText.Chapter(
                                                 title = cleanLine,
