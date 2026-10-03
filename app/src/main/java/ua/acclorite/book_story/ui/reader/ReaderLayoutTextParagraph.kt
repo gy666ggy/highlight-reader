@@ -177,8 +177,20 @@ fun LazyItemScope.ReaderLayoutTextParagraph(
 
                 // 6. 标点添加：点击任意非空白字符 → 弹出标点选择对话框
                 if (!handled && punctuationAddMode) {
-                    if (!text[charOffset].isWhitespace()) {
-                        onPunctuationAddClick(charOffset)
+                    // getOffsetForPosition 返回的是光标位置，需要确定实际点击的字符
+                    val rawOffset = result.getOffsetForPosition(offset)
+                    val clickedIndex = when {
+                        rawOffset >= text.length -> text.length - 1
+                        rawOffset <= 0 -> 0
+                        else -> {
+                            // 比较点击位置与当前字符左边界，判断点击的是当前字符还是前一个字符
+                            val box = result.getBoundingBox(rawOffset)
+                            if (offset.x < box.left) rawOffset - 1 else rawOffset
+                        }
+                    }.coerceIn(0, text.length - 1)
+
+                    if (!text[clickedIndex].isWhitespace()) {
+                        onPunctuationAddClick(clickedIndex)
                         handled = true
                     }
                 }
