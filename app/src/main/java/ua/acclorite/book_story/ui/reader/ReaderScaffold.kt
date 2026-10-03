@@ -704,50 +704,8 @@ fun ReaderScaffold(
         }
     }
 
-    fun applyPunctuationEdit(index: Int, charOffset: Int) {
-        val entry = baseText.getOrNull(index) as? ReaderText.Text ?: return
-        val originalText = entry.line.text
-        if (charOffset < 0 || charOffset >= originalText.length) return
-
-        // 收集所有在点击位置匹配的规则（从 charOffset 开始匹配）
-        val matchedRules = punctuationRules.filter { rule ->
-            val fromPunc = rule.first
-            fromPunc.isNotEmpty() && originalText.startsWith(fromPunc, charOffset)
-        }
-        if (matchedRules.isEmpty()) return
-
-        // 检查是否存在"替换前相同但替换后不同"的规则
-        val fromGroups = matchedRules.groupBy { it.first }
-        val hasAmbiguous = fromGroups.values.any { rules ->
-            rules.map { it.second to it.third }.distinct().size > 1
-        }
-
-        if (hasAmbiguous) {
-            // 有歧义：弹出对话框让用户选择替换为哪个
-            // 列出所有不同的 (from, to, addNewline) 组合
-            val distinctOptions = matchedRules.distinctBy { it.second to it.third }
-            val fromPunc = matchedRules.first().first
-            confirmReplaceTitle = "选择替换为"
-            confirmReplaceFrom = fromPunc
-            confirmReplaceOptions = distinctOptions
-            confirmReplaceOnConfirm = { selectedRule ->
-                doApplyReplace(index, charOffset, selectedRule, "已将「${selectedRule.first}」替换为「${selectedRule.second}」")
-            }
-            confirmReplaceOnDismiss = {}
-            confirmReplaceDialogVisible = true
-        } else {
-            // 无歧义：直接替换（使用第一条匹配规则）
-            val rule = matchedRules.first()
-            doApplyReplace(index, charOffset, rule, "已将「${rule.first}」替换为「${rule.second}」")
-        }
-    }
-
     /**
      * 执行实际的替换操作（标点编辑和文字替换共用）
-     * @param index 段落索引
-     * @param charOffset 匹配起始位置
-     * @param rule 替换规则 (from, to, addNewline)
-     * @param toastMsg 替换成功后的提示信息
      */
     fun doApplyReplace(
         index: Int,
@@ -795,6 +753,95 @@ fun ReaderScaffold(
         ).show()
     }
 
+    /**
+     * 查找 fromText 在 originalText 中包含 charOffset 的匹配起始位置
+     */
+    fun findMatchStart(originalText: String, fromText: String, charOffset: Int): Int {
+        var searchFrom = 0
+        while (true) {
+            val pos = originalText.indexOf(fromText, searchFrom)
+            if (pos < 0) break
+            val end = pos + fromText.length
+            if (charOffset in pos until end) return pos
+            searchFrom = pos + 1
+        }
+        return -1
+    }
+
+    /**
+     * 执行实际的段首添加操作
+     */
+    fun doApplyParagraphPrefix(
+        index: Int,
+        type: String,
+        charOffset: Int,
+        originalText: String,
+        combinedInsert: String,
+        desc: String
+    ) {
+        var newText = originalText
+
+        if (type == "start") {
+            val leadingWhitespace = originalText.indexOfFirst { !it.isWhitespace() }
+            val insertPos = if (leadingWhitespace < 0) originalText.length else leadingWhitespace
+            newText = originalText.substring(0, insertPos) + combinedInsert + originalText.substring(insertPos)
+        } else if (type == "after") {
+            val insertPos = charOffset + 1
+            newText = originalText.substring(0, insertPos) + combinedInsert + originalText.substring(insertPos)
+        }
+
+        if (newText == originalText) return
+
+        val updatedText = baseText.toMutableList()
+        updatedText[index] = ReaderText.Text(AnnotatedString(newText))
+        baseText = updatedText
+
+        saveBaseTextToTxt(baseText)
+
+        android.widget.Toast.makeText(
+            context,
+            "已在${desc}添加「$combinedInsert」",
+            android.widget.Toast.LENGTH_SHORT
+        ).show()
+    }
+
+    fun applyPunctuationEdit(index: Int, charOffset: Int) {
+        val entry = baseText.getOrNull(index) as? ReaderText.Text ?: return
+        val originalText = entry.line.text
+        if (charOffset < 0 || charOffset >= originalText.length) return
+
+        // 收集所有在点击位置匹配的规则（从 charOffset 开始匹配）
+        val matchedRules = punctuationRules.filter { rule ->
+            val fromPunc = rule.first
+            fromPunc.isNotEmpty() && originalText.startsWith(fromPunc, charOffset)
+        }
+        if (matchedRules.isEmpty()) return
+
+        // 检查是否存在"替换前相同但替换后不同"的规则
+        val fromGroups = matchedRules.groupBy { it.first }
+        val hasAmbiguous = fromGroups.values.any { rules ->
+            rules.map { it.second to it.third }.distinct().size > 1
+        }
+
+        if (hasAmbiguous) {
+            // 有歧义：弹出对话框让用户选择替换为哪个
+            val distinctOptions = matchedRules.distinctBy { it.second to it.third }
+            val fromPunc = matchedRules.first().first
+            confirmReplaceTitle = "选择替换为"
+            confirmReplaceFrom = fromPunc
+            confirmReplaceOptions = distinctOptions
+            confirmReplaceOnConfirm = { selectedRule ->
+                doApplyReplace(index, charOffset, selectedRule, "已将「${selectedRule.first}」替换为「${selectedRule.second}」")
+            }
+            confirmReplaceOnDismiss = {}
+            confirmReplaceDialogVisible = true
+        } else {
+            // 无歧义：直接替换（使用第一条匹配规则）
+            val rule = matchedRules.first()
+            doApplyReplace(index, charOffset, rule, "已将「${rule.first}」替换为「${rule.second}」")
+        }
+    }
+
     fun applyTextReplace(index: Int, charOffset: Int) {
         val entry = baseText.getOrNull(index) as? ReaderText.Text ?: return
         val originalText = entry.line.text
@@ -832,7 +879,6 @@ fun ReaderScaffold(
             confirmReplaceFrom = fromText
             confirmReplaceOptions = distinctOptions
             confirmReplaceOnConfirm = { selectedRule ->
-                // 找到该替换后对应的起始位置
                 val matchStart = findMatchStart(originalText, selectedRule.first, charOffset)
                 if (matchStart >= 0) {
                     doApplyReplace(index, matchStart, selectedRule, "已将「${selectedRule.first}」替换为「${selectedRule.second}」")
@@ -848,21 +894,6 @@ fun ReaderScaffold(
                 doApplyReplace(index, matchStart, rule, "已将「${rule.first}」替换为「${rule.second}」")
             }
         }
-    }
-
-    /**
-     * 查找 fromText 在 originalText 中包含 charOffset 的匹配起始位置
-     */
-    private fun findMatchStart(originalText: String, fromText: String, charOffset: Int): Int {
-        var searchFrom = 0
-        while (true) {
-            val pos = originalText.indexOf(fromText, searchFrom)
-            if (pos < 0) break
-            val end = pos + fromText.length
-            if (charOffset in pos until end) return pos
-            searchFrom = pos + 1
-        }
-        return -1
     }
 
     /**
@@ -912,43 +943,6 @@ fun ReaderScaffold(
             doApplyParagraphPrefix(index, type, charOffsetRef, originalTextRef, combinedInsert, desc)
         }
         paragraphPrefixConfirmVisible = true
-    }
-
-    /**
-     * 执行实际的段首添加操作
-     */
-    private fun doApplyParagraphPrefix(
-        index: Int,
-        type: String,
-        charOffset: Int,
-        originalText: String,
-        combinedInsert: String,
-        desc: String
-    ) {
-        var newText = originalText
-
-        if (type == "start") {
-            val leadingWhitespace = originalText.indexOfFirst { !it.isWhitespace() }
-            val insertPos = if (leadingWhitespace < 0) originalText.length else leadingWhitespace
-            newText = originalText.substring(0, insertPos) + combinedInsert + originalText.substring(insertPos)
-        } else if (type == "after") {
-            val insertPos = charOffset + 1
-            newText = originalText.substring(0, insertPos) + combinedInsert + originalText.substring(insertPos)
-        }
-
-        if (newText == originalText) return
-
-        val updatedText = baseText.toMutableList()
-        updatedText[index] = ReaderText.Text(AnnotatedString(newText))
-        baseText = updatedText
-
-        saveBaseTextToTxt(baseText)
-
-        android.widget.Toast.makeText(
-            context,
-            "已在${desc}添加「$combinedInsert」",
-            android.widget.Toast.LENGTH_SHORT
-        ).show()
     }
 
     fun buildSearchResults() {
