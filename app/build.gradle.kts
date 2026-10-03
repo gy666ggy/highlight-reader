@@ -45,8 +45,8 @@ android {
                 keyAlias = ksAlias
                 keyPassword = ksKeyPassword
                 // 同时启用 v1 和 v2 签名，确保所有设备兼容
-                enableV1Signing = true
-                enableV2Signing = true
+                v1SigningEnabled = true
+                v2SigningEnabled = true
             } else {
                 throw GradleException(
                     "签名材料不完整：请检查 GitHub Secrets " +
