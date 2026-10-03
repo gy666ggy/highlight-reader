@@ -70,6 +70,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -264,6 +265,22 @@ fun ReaderScaffold(
     LaunchedEffect(paragraphPrefixRules) {
         saveParagraphPrefixRules(globalPrefs, paragraphPrefixRules)
     }
+
+    // 替换确认对话框状态
+    // 当标点编辑/文字替换存在多条"替换前相同但替换后不同"的规则时，
+    // 或段首添加时，弹出此对话框让用户选择/确认
+    var confirmReplaceDialogVisible by remember { mutableStateOf(false) }
+    var confirmReplaceTitle by remember { mutableStateOf("") }
+    var confirmReplaceFrom by remember { mutableStateOf("") }
+    var confirmReplaceOptions by remember { mutableStateOf<List<Triple<String, String, Boolean>>>(emptyList()) }
+    var confirmReplaceOnConfirm by remember { mutableStateOf<(Triple<String, String, Boolean>) -> Unit>({}) }
+    var confirmReplaceOnDismiss by remember { mutableStateOf<() -> Unit>({}) }
+
+    // 段首添加确认对话框状态
+    var paragraphPrefixConfirmVisible by remember { mutableStateOf(false) }
+    var paragraphPrefixConfirmText by remember { mutableStateOf("") }
+    var paragraphPrefixConfirmDesc by remember { mutableStateOf("") }
+    var paragraphPrefixConfirmOnConfirm by remember { mutableStateOf<() -> Unit>({}) }
 
     // 段落内容指纹映射：列表索引 -> 内容指纹 (String)
     // 使用章节标题 + 段落文本的前50个非空白字符作为指纹
@@ -692,86 +709,62 @@ fun ReaderScaffold(
         val originalText = entry.line.text
         if (charOffset < 0 || charOffset >= originalText.length) return
 
-        // 在点击位置匹配规则：找到从 charOffset 开始匹配的规则
-        val matchedRule = punctuationRules.firstOrNull { rule ->
+        // 收集所有在点击位置匹配的规则（从 charOffset 开始匹配）
+        val matchedRules = punctuationRules.filter { rule ->
             val fromPunc = rule.first
             fromPunc.isNotEmpty() && originalText.startsWith(fromPunc, charOffset)
         }
-        val rule = matchedRule ?: return
-        val fromPunc = rule.first
-        val toPunc = rule.second
-        val addNewline = rule.third
+        if (matchedRules.isEmpty()) return
 
-        // 只替换点击位置的那一个标点（charOffset 是匹配起始位置）
-        val before = originalText.substring(0, charOffset)
-        val after = originalText.substring(charOffset + fromPunc.length)
-        val replacement = toPunc + if (addNewline) "\n" else ""
-        val newText = before + replacement + after
-
-        if (addNewline) {
-            val lines = newText.split("\n").filter { it.isNotBlank() }
-            if (lines.size <= 1) {
-                val updatedText = baseText.toMutableList()
-                updatedText[index] = ReaderText.Text(AnnotatedString(newText))
-                baseText = updatedText
-            } else {
-                val updatedText = baseText.toMutableList()
-                updatedText[index] = ReaderText.Text(AnnotatedString(lines[0]))
-                updatedText.addAll(index + 1, lines.drop(1).map { ReaderText.Text(AnnotatedString(it)) })
-                baseText = updatedText
-            }
-        } else {
-            val updatedText = baseText.toMutableList()
-            updatedText[index] = ReaderText.Text(AnnotatedString(newText))
-            baseText = updatedText
+        // 检查是否存在"替换前相同但替换后不同"的规则
+        val fromGroups = matchedRules.groupBy { it.first }
+        val hasAmbiguous = fromGroups.values.any { rules ->
+            rules.map { it.second to it.third }.distinct().size > 1
         }
 
-        saveBaseTextToTxt(baseText)
-
-        android.widget.Toast.makeText(
-            context,
-            "已将「$fromPunc」替换为「$toPunc」" +
-                if (addNewline) "并换行" else "",
-            android.widget.Toast.LENGTH_SHORT
-        ).show()
+        if (hasAmbiguous) {
+            // 有歧义：弹出对话框让用户选择替换为哪个
+            // 列出所有不同的 (from, to, addNewline) 组合
+            val distinctOptions = matchedRules.distinctBy { it.second to it.third }
+            val fromPunc = matchedRules.first().first
+            confirmReplaceTitle = "选择替换为"
+            confirmReplaceFrom = fromPunc
+            confirmReplaceOptions = distinctOptions
+            confirmReplaceOnConfirm = { selectedRule ->
+                doApplyReplace(index, charOffset, selectedRule, "已将「${selectedRule.first}」替换为「${selectedRule.second}」")
+            }
+            confirmReplaceOnDismiss = {}
+            confirmReplaceDialogVisible = true
+        } else {
+            // 无歧义：直接替换（使用第一条匹配规则）
+            val rule = matchedRules.first()
+            doApplyReplace(index, charOffset, rule, "已将「${rule.first}」替换为「${rule.second}」")
+        }
     }
 
-    fun applyTextReplace(index: Int, charOffset: Int) {
+    /**
+     * 执行实际的替换操作（标点编辑和文字替换共用）
+     * @param index 段落索引
+     * @param charOffset 匹配起始位置
+     * @param rule 替换规则 (from, to, addNewline)
+     * @param toastMsg 替换成功后的提示信息
+     */
+    fun doApplyReplace(
+        index: Int,
+        charOffset: Int,
+        rule: Triple<String, String, Boolean>,
+        toastMsg: String
+    ) {
         val entry = baseText.getOrNull(index) as? ReaderText.Text ?: return
         val originalText = entry.line.text
         if (charOffset < 0 || charOffset >= originalText.length) return
 
-        // 在点击位置匹配替换规则：找到包含点击位置的那一条规则
-        var matchedRule: Triple<String, String, Boolean>? = null
-        var matchStart = -1
-        for (rule in textReplaceRules) {
-            val fromText = rule.first
-            if (fromText.isEmpty()) continue
-            // 在 originalText 中搜索所有 fromText 出现的位置
-            var searchFrom = 0
-            while (true) {
-                val pos = originalText.indexOf(fromText, searchFrom)
-                if (pos < 0) break
-                val end = pos + fromText.length
-                // 检查点击位置是否落在这个匹配范围内
-                if (charOffset in pos until end) {
-                    matchedRule = rule
-                    matchStart = pos
-                    break
-                }
-                searchFrom = pos + 1
-            }
-            if (matchedRule != null) break
-        }
-
-        val rule = matchedRule ?: return
         val fromText = rule.first
         val toText = rule.second
         val addNewline = rule.third
 
-        // 只替换点击位置的那一处匹配
-        val before = originalText.substring(0, matchStart)
-        val after = originalText.substring(matchStart + fromText.length)
+        val before = originalText.substring(0, charOffset)
+        val after = originalText.substring(charOffset + fromText.length)
         val replacement = toText + if (addNewline) "\n" else ""
         val newText = before + replacement + after
 
@@ -797,10 +790,79 @@ fun ReaderScaffold(
 
         android.widget.Toast.makeText(
             context,
-            "已将「$fromText」替换为「$toText」" +
-                if (addNewline) "并换行" else "",
+            toastMsg + if (addNewline) "并换行" else "",
             android.widget.Toast.LENGTH_SHORT
         ).show()
+    }
+
+    fun applyTextReplace(index: Int, charOffset: Int) {
+        val entry = baseText.getOrNull(index) as? ReaderText.Text ?: return
+        val originalText = entry.line.text
+        if (charOffset < 0 || charOffset >= originalText.length) return
+
+        // 收集所有在点击位置匹配的规则
+        val matchedRules = textReplaceRules.filter { rule ->
+            val fromText = rule.first
+            if (fromText.isEmpty()) return@filter false
+            var searchFrom = 0
+            while (true) {
+                val pos = originalText.indexOf(fromText, searchFrom)
+                if (pos < 0) break
+                val end = pos + fromText.length
+                if (charOffset in pos until end) {
+                    return@filter true
+                }
+                searchFrom = pos + 1
+            }
+            false
+        }
+        if (matchedRules.isEmpty()) return
+
+        // 检查是否存在"替换前相同但替换后不同"的规则
+        val fromGroups = matchedRules.groupBy { it.first }
+        val hasAmbiguous = fromGroups.values.any { rules ->
+            rules.map { it.second to it.third }.distinct().size > 1
+        }
+
+        if (hasAmbiguous) {
+            // 有歧义：弹出对话框让用户选择
+            val distinctOptions = matchedRules.distinctBy { it.second to it.third }
+            val fromText = matchedRules.first().first
+            confirmReplaceTitle = "选择替换为"
+            confirmReplaceFrom = fromText
+            confirmReplaceOptions = distinctOptions
+            confirmReplaceOnConfirm = { selectedRule ->
+                // 找到该替换后对应的起始位置
+                val matchStart = findMatchStart(originalText, selectedRule.first, charOffset)
+                if (matchStart >= 0) {
+                    doApplyReplace(index, matchStart, selectedRule, "已将「${selectedRule.first}」替换为「${selectedRule.second}」")
+                }
+            }
+            confirmReplaceOnDismiss = {}
+            confirmReplaceDialogVisible = true
+        } else {
+            // 无歧义：直接替换
+            val rule = matchedRules.first()
+            val matchStart = findMatchStart(originalText, rule.first, charOffset)
+            if (matchStart >= 0) {
+                doApplyReplace(index, matchStart, rule, "已将「${rule.first}」替换为「${rule.second}」")
+            }
+        }
+    }
+
+    /**
+     * 查找 fromText 在 originalText 中包含 charOffset 的匹配起始位置
+     */
+    private fun findMatchStart(originalText: String, fromText: String, charOffset: Int): Int {
+        var searchFrom = 0
+        while (true) {
+            val pos = originalText.indexOf(fromText, searchFrom)
+            if (pos < 0) break
+            val end = pos + fromText.length
+            if (charOffset in pos until end) return pos
+            searchFrom = pos + 1
+        }
+        return -1
     }
 
     /**
@@ -820,30 +882,58 @@ fun ReaderScaffold(
             return
         }
 
-        var newText = originalText
-        val insertedTexts = mutableListOf<String>()
+        // 计算将要插入的文字
+        var combinedInsert = ""
+        var desc = ""
+        var valid = false
 
         if (type == "start") {
-            // 段首添加：跳过开头空白字符，在第一个非空白字符前插入所有匹配规则的文字
-            val leadingWhitespace = originalText.indexOfFirst { !it.isWhitespace() }
-            val insertPos = if (leadingWhitespace < 0) originalText.length else leadingWhitespace
-            val combinedInsert = matchedRules.joinToString("") { it.insertText }
-            newText = originalText.substring(0, insertPos) + combinedInsert + originalText.substring(insertPos)
-            insertedTexts.add(combinedInsert)
+            combinedInsert = matchedRules.joinToString("") { it.insertText }
+            desc = "段首"
+            valid = true
         } else if (type == "after") {
-            // 指定字符后添加：在点击位置的字符后插入
             if (charOffset < 0 || charOffset >= originalText.length) return
             val clickedChar = originalText[charOffset].toString()
-            // 只对匹配触发字符的规则生效
             val afterRules = matchedRules.filter { it.trigger == clickedChar }
-            if (afterRules.isEmpty()) {
-                // 点击的字符没有匹配的规则，不处理
-                return
-            }
-            val combinedInsert = afterRules.joinToString("") { it.insertText }
+            if (afterRules.isEmpty()) return
+            combinedInsert = afterRules.joinToString("") { it.insertText }
+            desc = "「$clickedChar」后"
+            valid = true
+        }
+
+        if (!valid || combinedInsert.isEmpty()) return
+
+        // 段首添加：总是先弹出确认对话框，用户确认后再替换
+        val originalTextRef = originalText
+        val charOffsetRef = charOffset
+        paragraphPrefixConfirmText = combinedInsert
+        paragraphPrefixConfirmDesc = desc
+        paragraphPrefixConfirmOnConfirm = {
+            doApplyParagraphPrefix(index, type, charOffsetRef, originalTextRef, combinedInsert, desc)
+        }
+        paragraphPrefixConfirmVisible = true
+    }
+
+    /**
+     * 执行实际的段首添加操作
+     */
+    private fun doApplyParagraphPrefix(
+        index: Int,
+        type: String,
+        charOffset: Int,
+        originalText: String,
+        combinedInsert: String,
+        desc: String
+    ) {
+        var newText = originalText
+
+        if (type == "start") {
+            val leadingWhitespace = originalText.indexOfFirst { !it.isWhitespace() }
+            val insertPos = if (leadingWhitespace < 0) originalText.length else leadingWhitespace
+            newText = originalText.substring(0, insertPos) + combinedInsert + originalText.substring(insertPos)
+        } else if (type == "after") {
             val insertPos = charOffset + 1
             newText = originalText.substring(0, insertPos) + combinedInsert + originalText.substring(insertPos)
-            insertedTexts.add(combinedInsert)
         }
 
         if (newText == originalText) return
@@ -854,10 +944,9 @@ fun ReaderScaffold(
 
         saveBaseTextToTxt(baseText)
 
-        val desc = if (type == "start") "段首" else "「${originalText[charOffset]}」后"
         android.widget.Toast.makeText(
             context,
-            "已在${desc}添加「${insertedTexts.joinToString("")}」",
+            "已在${desc}添加「$combinedInsert」",
             android.widget.Toast.LENGTH_SHORT
         ).show()
     }
@@ -2291,6 +2380,70 @@ fun ReaderScaffold(
                 dismissButton = {
                     TextButton(onClick = { chapterReplaceDialogVisible = false }) {
                         Text("关闭")
+                    }
+                }
+            )
+        }
+
+        // 替换确认对话框：标点编辑/文字替换存在"替换前相同但替换后不同"时弹出
+        if (confirmReplaceDialogVisible) {
+            AlertDialog(
+                onDismissRequest = {
+                    confirmReplaceOnDismiss()
+                    confirmReplaceDialogVisible = false
+                },
+                title = { Text(confirmReplaceTitle) },
+                text = {
+                    Column {
+                        Text("将「${confirmReplaceFrom}」替换为：")
+                        Spacer(Modifier.height(8.dp))
+                        confirmReplaceOptions.forEach { option ->
+                            TextButton(
+                                onClick = {
+                                    confirmReplaceOnConfirm(option)
+                                    confirmReplaceDialogVisible = false
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = "「${option.second}」" + if (option.third) "（换行）" else "",
+                                    fontSize = 16.sp
+                                )
+                            }
+                        }
+                    }
+                },
+                confirmButton = {},
+                dismissButton = {
+                    TextButton(onClick = {
+                        confirmReplaceOnDismiss()
+                        confirmReplaceDialogVisible = false
+                    }) {
+                        Text("取消")
+                    }
+                }
+            )
+        }
+
+        // 段首添加确认对话框
+        if (paragraphPrefixConfirmVisible) {
+            AlertDialog(
+                onDismissRequest = { paragraphPrefixConfirmVisible = false },
+                title = { Text("确认段首添加") },
+                text = {
+                    Text("将在${paragraphPrefixConfirmDesc}添加「${paragraphPrefixConfirmText}」，是否继续？")
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        paragraphPrefixConfirmOnConfirm()
+                        paragraphPrefixConfirmVisible = false
+                    }) {
+                        Text("确定")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { paragraphPrefixConfirmVisible = false }) {
+                        Text("取消")
                     }
                 }
             )
