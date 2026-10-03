@@ -276,11 +276,11 @@ fun ReaderScaffold(
     var confirmReplaceOnConfirm by remember { mutableStateOf<(Triple<String, String, Boolean>) -> Unit>({}) }
     var confirmReplaceOnDismiss by remember { mutableStateOf<() -> Unit>({}) }
 
-    // 段首添加确认对话框状态
-    var paragraphPrefixConfirmVisible by remember { mutableStateOf(false) }
-    var paragraphPrefixConfirmText by remember { mutableStateOf("") }
-    var paragraphPrefixConfirmDesc by remember { mutableStateOf("") }
-    var paragraphPrefixConfirmOnConfirm by remember { mutableStateOf<() -> Unit>({}) }
+    // 段首添加选择对话框状态
+    var paragraphPrefixSelectVisible by remember { mutableStateOf(false) }
+    var paragraphPrefixSelectDesc by remember { mutableStateOf("") }
+    var paragraphPrefixSelectOptions by remember { mutableStateOf<List<ParagraphPrefixRule>>(emptyList()) }
+    var paragraphPrefixSelectOnConfirm by remember { mutableStateOf<(ParagraphPrefixRule) -> Unit>({}) }
 
     // 段落内容指纹映射：列表索引 -> 内容指纹 (String)
     // 使用章节标题 + 段落文本的前50个非空白字符作为指纹
@@ -907,42 +907,30 @@ fun ReaderScaffold(
         val originalText = entry.line.text
 
         // 根据类型筛选启用的规则
-        val matchedRules = paragraphPrefixRules.filter { it.enabled && it.type == type }
+        val matchedRules = if (type == "after") {
+            if (charOffset < 0 || charOffset >= originalText.length) return
+            val clickedChar = originalText[charOffset].toString()
+            paragraphPrefixRules.filter { it.enabled && it.type == type && it.trigger == clickedChar }
+        } else {
+            paragraphPrefixRules.filter { it.enabled && it.type == type }
+        }
+
         if (matchedRules.isEmpty()) {
             android.widget.Toast.makeText(context, "没有可用的规则", android.widget.Toast.LENGTH_SHORT).show()
             return
         }
 
-        // 计算将要插入的文字
-        var combinedInsert = ""
-        var desc = ""
-        var valid = false
+        val desc = if (type == "start") "段首" else "「${originalText[charOffset]}」后"
 
-        if (type == "start") {
-            combinedInsert = matchedRules.joinToString("") { it.insertText }
-            desc = "段首"
-            valid = true
-        } else if (type == "after") {
-            if (charOffset < 0 || charOffset >= originalText.length) return
-            val clickedChar = originalText[charOffset].toString()
-            val afterRules = matchedRules.filter { it.trigger == clickedChar }
-            if (afterRules.isEmpty()) return
-            combinedInsert = afterRules.joinToString("") { it.insertText }
-            desc = "「$clickedChar」后"
-            valid = true
-        }
-
-        if (!valid || combinedInsert.isEmpty()) return
-
-        // 段首添加：总是先弹出确认对话框，用户确认后再替换
+        // 弹出选择对话框，让用户选择要添加哪一条规则
         val originalTextRef = originalText
         val charOffsetRef = charOffset
-        paragraphPrefixConfirmText = combinedInsert
-        paragraphPrefixConfirmDesc = desc
-        paragraphPrefixConfirmOnConfirm = {
-            doApplyParagraphPrefix(index, type, charOffsetRef, originalTextRef, combinedInsert, desc)
+        paragraphPrefixSelectDesc = desc
+        paragraphPrefixSelectOptions = matchedRules
+        paragraphPrefixSelectOnConfirm = { selectedRule ->
+            doApplyParagraphPrefix(index, type, charOffsetRef, originalTextRef, selectedRule.insertText, desc)
         }
-        paragraphPrefixConfirmVisible = true
+        paragraphPrefixSelectVisible = true
     }
 
     fun buildSearchResults() {
@@ -2419,24 +2407,34 @@ fun ReaderScaffold(
             )
         }
 
-        // 段首添加确认对话框
-        if (paragraphPrefixConfirmVisible) {
+        // 段首添加选择对话框
+        if (paragraphPrefixSelectVisible) {
             AlertDialog(
-                onDismissRequest = { paragraphPrefixConfirmVisible = false },
-                title = { Text("确认段首添加") },
+                onDismissRequest = { paragraphPrefixSelectVisible = false },
+                title = { Text("选择要添加的内容") },
                 text = {
-                    Text("将在${paragraphPrefixConfirmDesc}添加「${paragraphPrefixConfirmText}」，是否继续？")
-                },
-                confirmButton = {
-                    TextButton(onClick = {
-                        paragraphPrefixConfirmOnConfirm()
-                        paragraphPrefixConfirmVisible = false
-                    }) {
-                        Text("确定")
+                    Column {
+                        Text("将在${paragraphPrefixSelectDesc}添加：")
+                        Spacer(Modifier.height(8.dp))
+                        paragraphPrefixSelectOptions.forEach { rule ->
+                            TextButton(
+                                onClick = {
+                                    paragraphPrefixSelectOnConfirm(rule)
+                                    paragraphPrefixSelectVisible = false
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = "「${rule.insertText}」",
+                                    fontSize = 16.sp
+                                )
+                            }
+                        }
                     }
                 },
+                confirmButton = {},
                 dismissButton = {
-                    TextButton(onClick = { paragraphPrefixConfirmVisible = false }) {
+                    TextButton(onClick = { paragraphPrefixSelectVisible = false }) {
                         Text("取消")
                     }
                 }

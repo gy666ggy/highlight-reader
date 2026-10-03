@@ -97,13 +97,18 @@ fun LazyItemScope.ReaderLayoutTextParagraph(
                 val clickedChar = text[charOffset].toString()
                 var handled = false
 
-                // 1. 段首添加：点击段落开头区域（前10%宽度）→ 应用段首添加规则
+                // 1. 段首添加：只在第一行开头区域触发（真正的段首）
                 if (!handled && paragraphPrefixMode) {
                     val width = result.size.width
                     val enabledStartRules = paragraphPrefixRules.any { it.enabled && it.type == "start" }
-                    if (width > 0 && offset.x <= width * 0.1f && enabledStartRules) {
-                        onParagraphPrefixClick("start", -1)
-                        handled = true
+                    if (width > 0 && enabledStartRules) {
+                        // 获取点击的行号，只在第一行（line == 0）触发
+                        val clickedLine = result.getLineForVerticalPosition(offset.y)
+                        // 第一行开头区域：前15%宽度
+                        if (clickedLine == 0 && offset.x <= width * 0.15f) {
+                            onParagraphPrefixClick("start", -1)
+                            handled = true
+                        }
                     }
                 }
 
