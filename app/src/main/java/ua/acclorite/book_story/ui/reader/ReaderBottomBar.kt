@@ -82,6 +82,8 @@ fun ReaderBottomBar(
     textReplaceActive: Boolean = false,
     paragraphPrefix: () -> Unit,
     paragraphPrefixActive: Boolean = false,
+    punctuationAdd: () -> Unit,
+    punctuationAddActive: Boolean = false,
     chapterReplace: () -> Unit,
     sortButtons: () -> Unit,
     buttonOrder: List<String> = emptyList()
@@ -179,7 +181,7 @@ fun ReaderBottomBar(
         val defaultOrder = listOf(
             "chapters", "bookmark", "nextBookmark", "search", "replace",
             "chapterReplace", "editChapter", "highlightColor", "modifyHighlight",
-            "punctuationEdit", "textReplace", "paragraphPrefix", "sort", "settings"
+            "punctuationEdit", "textReplace", "paragraphPrefix", "punctuationAdd", "sort", "settings"
         )
         val renderOrder = if (buttonOrder.isNotEmpty()) buttonOrder else defaultOrder
 
@@ -198,6 +200,7 @@ fun ReaderBottomBar(
                     punctuationEditActive = punctuationEditActive,
                     textReplaceActive = textReplaceActive,
                     paragraphPrefixActive = paragraphPrefixActive,
+                    punctuationAddActive = punctuationAddActive,
                     showChapters = showChapters,
                     toggleBookmark = toggleBookmark,
                     nextBookmark = nextBookmark,
@@ -210,6 +213,7 @@ fun ReaderBottomBar(
                     punctuationEdit = punctuationEdit,
                     textReplace = textReplace,
                     paragraphPrefix = paragraphPrefix,
+                    punctuationAdd = punctuationAdd,
                     sortButtons = sortButtons,
                     showSettings = showSettings
                 )
@@ -226,6 +230,7 @@ private fun ReaderBottomBarButton(
     punctuationEditActive: Boolean,
     textReplaceActive: Boolean,
     paragraphPrefixActive: Boolean,
+    punctuationAddActive: Boolean,
     showChapters: () -> Unit,
     toggleBookmark: () -> Unit,
     nextBookmark: () -> Unit,
@@ -238,6 +243,7 @@ private fun ReaderBottomBarButton(
     punctuationEdit: () -> Unit,
     textReplace: () -> Unit,
     paragraphPrefix: () -> Unit,
+    punctuationAdd: () -> Unit,
     sortButtons: () -> Unit,
     showSettings: () -> Unit
 ) {
@@ -254,6 +260,7 @@ private fun ReaderBottomBarButton(
         "punctuationEdit" -> BottomAction("标点编辑", enabled = !lockMenu, active = punctuationEditActive, onClick = punctuationEdit)
         "textReplace" -> BottomAction("文字替换", enabled = !lockMenu, active = textReplaceActive, onClick = textReplace)
         "paragraphPrefix" -> BottomAction("段首添加", enabled = !lockMenu, active = paragraphPrefixActive, onClick = paragraphPrefix)
+        "punctuationAdd" -> BottomAction("标点添加", enabled = !lockMenu, active = punctuationAddActive, onClick = punctuationAdd)
         "sort" -> BottomAction("排序", enabled = !lockMenu, onClick = sortButtons)
         "settings" -> BottomAction("设置", enabled = !lockMenu, onClick = showSettings)
     }

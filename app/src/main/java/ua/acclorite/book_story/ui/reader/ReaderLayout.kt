@@ -76,6 +76,8 @@ fun ReaderLayout(
     paragraphPrefixMode: Boolean = false,
     paragraphPrefixRules: List<ParagraphPrefixRule> = emptyList(),
     onParagraphPrefixClick: (Int, String, Int) -> Unit = { _, _, _ -> },
+    punctuationAddMode: Boolean = false,
+    onPunctuationAddClick: (Int, Int) -> Unit = { _, _ -> },
     progress: String,
     progressBar: Boolean,
     progressBarPadding: Dp,
@@ -249,6 +251,10 @@ fun ReaderLayout(
                                     paragraphPrefixRules = paragraphPrefixRules,
                                     onParagraphPrefixClick = { type, charOffset ->
                                         onParagraphPrefixClick(index, type, charOffset)
+                                    },
+                                    punctuationAddMode = punctuationAddMode,
+                                    onPunctuationAddClick = { charOffset ->
+                                        onPunctuationAddClick(index, charOffset)
                                     },
                                     toolbarHidden = toolbarHidden,
                                     openTranslator = openTranslator,

@@ -66,6 +66,8 @@ fun LazyItemScope.ReaderLayoutTextParagraph(
     paragraphPrefixMode: Boolean = false,
     paragraphPrefixRules: List<ParagraphPrefixRule> = emptyList(),
     onParagraphPrefixClick: (String, Int) -> Unit = { _, _ -> },
+    punctuationAddMode: Boolean = false,
+    onPunctuationAddClick: (Int) -> Unit = {},
     toolbarHidden: Boolean,
     openTranslator: (ReaderEvent.OnOpenTranslator) -> Unit,
     menuVisibility: (ReaderEvent.OnMenuVisibility) -> Unit
@@ -76,7 +78,7 @@ fun LazyItemScope.ReaderLayoutTextParagraph(
     // 追踪 TextLayoutResult 用于点击定位字符
     val layoutResult = remember { mutableStateOf<TextLayoutResult?>(null) }
 
-    val anyEditMode = punctuationEditMode || textReplaceMode || paragraphPrefixMode || modifyHighlightMode
+    val anyEditMode = punctuationEditMode || textReplaceMode || paragraphPrefixMode || modifyHighlightMode || punctuationAddMode
 
     // 编辑/高亮模式下的统一点击处理器：直接放在 StyledText 上，确保事件不被父级拦截
     val editTapModifier = if (anyEditMode) {
@@ -85,7 +87,8 @@ fun LazyItemScope.ReaderLayoutTextParagraph(
             modifyHighlightMode,
             punctuationEditMode, punctuationRules,
             textReplaceMode, textReplaceRules,
-            paragraphPrefixMode, paragraphPrefixRules
+            paragraphPrefixMode, paragraphPrefixRules,
+            punctuationAddMode
         ) {
             detectTapGestures { offset ->
                 val result = layoutResult.value ?: return@detectTapGestures
@@ -172,7 +175,15 @@ fun LazyItemScope.ReaderLayoutTextParagraph(
                     handled = true
                 }
 
-                // 6. 没有匹配到任何规则且不在高亮模式 → 切换功能栏
+                // 6. 标点添加：点击任意非空白字符 → 弹出标点选择对话框
+                if (!handled && punctuationAddMode) {
+                    if (!text[charOffset].isWhitespace()) {
+                        onPunctuationAddClick(charOffset)
+                        handled = true
+                    }
+                }
+
+                // 7. 没有匹配到任何规则且不在高亮模式 → 切换功能栏
                 if (!handled) {
                     menuVisibility(
                         ReaderEvent.OnMenuVisibility(

@@ -282,6 +282,20 @@ fun ReaderScaffold(
     var paragraphPrefixSelectOptions by remember { mutableStateOf<List<ParagraphPrefixRule>>(emptyList()) }
     var paragraphPrefixSelectOnConfirm by remember { mutableStateOf<(ParagraphPrefixRule) -> Unit>({}) }
 
+    // 标点添加状态
+    var punctuationAddMode by remember { mutableStateOf(false) }
+    // 标点添加选择对话框
+    var punctuationAddDialogVisible by remember { mutableStateOf(false) }
+    var punctuationAddIndex by remember { mutableStateOf(-1) }
+    var punctuationAddCharOffset by remember { mutableStateOf(-1) }
+    // 预设标点列表
+    val punctuationAddList = listOf(
+        "，", "。", "！", "？", "、", "；", "：",
+        "\"", "\"", "'", "'",
+        "（", "）", "《", "》", "【", "】",
+        "—", "…", "·", "："
+    )
+
     // 段落内容指纹映射：列表索引 -> 内容指纹 (String)
     // 使用章节标题 + 段落文本的前50个非空白字符作为指纹
     // 这样即使段落序号因编辑变化，只要内容相同就能匹配回高亮
@@ -933,6 +947,49 @@ fun ReaderScaffold(
         paragraphPrefixSelectVisible = true
     }
 
+    /**
+     * 标点添加：点击文字后，弹出标点选择对话框
+     * @param index 段落索引
+     * @param charOffset 点击的字符位置，标点将添加在该字符后面
+     */
+    fun applyPunctuationAdd(index: Int, charOffset: Int) {
+        val entry = baseText.getOrNull(index) as? ReaderText.Text ?: return
+        val originalText = entry.line.text
+        if (charOffset < 0 || charOffset >= originalText.length) return
+
+        // 只在非空白字符上触发
+        if (originalText[charOffset].isWhitespace()) return
+
+        punctuationAddIndex = index
+        punctuationAddCharOffset = charOffset
+        punctuationAddDialogVisible = true
+    }
+
+    /**
+     * 执行实际的标点添加操作
+     */
+    fun doApplyPunctuationAdd(index: Int, charOffset: Int, punctuation: String) {
+        val entry = baseText.getOrNull(index) as? ReaderText.Text ?: return
+        val originalText = entry.line.text
+        if (charOffset < 0 || charOffset >= originalText.length) return
+
+        // 在点击字符后面插入标点
+        val insertPos = charOffset + 1
+        val newText = originalText.substring(0, insertPos) + punctuation + originalText.substring(insertPos)
+
+        val updatedText = baseText.toMutableList()
+        updatedText[index] = ReaderText.Text(AnnotatedString(newText))
+        baseText = updatedText
+
+        saveBaseTextToTxt(baseText)
+
+        android.widget.Toast.makeText(
+            context,
+            "已添加「$punctuation」",
+            android.widget.Toast.LENGTH_SHORT
+        ).show()
+    }
+
     fun buildSearchResults() {
         val query = searchValue.trim()
         if (displayedText.isEmpty() || query.isBlank()) {
@@ -1208,6 +1265,14 @@ fun ReaderScaffold(
                         }
                     },
                     paragraphPrefixActive = paragraphPrefixMode,
+                    punctuationAdd = {
+                        if (punctuationAddMode) {
+                            punctuationAddMode = false
+                        } else {
+                            punctuationAddMode = true
+                        }
+                    },
+                    punctuationAddActive = punctuationAddMode,
                     chapterReplace = {
                         chapterSearchValue = ""
                         chapterReplaceValue = ""
@@ -1260,6 +1325,10 @@ fun ReaderScaffold(
                 paragraphPrefixRules = paragraphPrefixRules,
                 onParagraphPrefixClick = { index, type, charOffset ->
                     applyParagraphPrefix(index, type, charOffset)
+                },
+                punctuationAddMode = punctuationAddMode,
+                onPunctuationAddClick = { index, charOffset ->
+                    applyPunctuationAdd(index, charOffset)
                 },
                 onParagraphColorChange = { key ->
                     val currentColors = paragraphHighlightColors.toMutableMap()
@@ -2441,6 +2510,49 @@ fun ReaderScaffold(
             )
         }
 
+        // 标点添加选择对话框
+        if (punctuationAddDialogVisible) {
+            AlertDialog(
+                onDismissRequest = { punctuationAddDialogVisible = false },
+                title = { Text("选择要添加的标点") },
+                text = {
+                    Column {
+                        Text("将在点击位置后添加：")
+                        Spacer(Modifier.height(8.dp))
+                        // 标点网格布局
+                        val chunked = punctuationAddList.chunked(6)
+                        chunked.forEach { row ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceEvenly
+                            ) {
+                                row.forEach { punc ->
+                                    TextButton(
+                                        onClick = {
+                                            doApplyPunctuationAdd(
+                                                punctuationAddIndex,
+                                                punctuationAddCharOffset,
+                                                punc
+                                            )
+                                            punctuationAddDialogVisible = false
+                                        }
+                                    ) {
+                                        Text(text = punc, fontSize = 18.sp)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {},
+                dismissButton = {
+                    TextButton(onClick = { punctuationAddDialogVisible = false }) {
+                        Text("取消")
+                    }
+                }
+            )
+        }
+
         if (sortDialogVisible) {
             val buttonLabels = mapOf(
                 "chapters" to "目录",
@@ -2455,6 +2567,7 @@ fun ReaderScaffold(
                 "punctuationEdit" to "标点编辑",
                 "textReplace" to "文字替换",
                 "paragraphPrefix" to "段首添加",
+                "punctuationAdd" to "标点添加",
                 "sort" to "排序",
                 "settings" to "设置"
             )
