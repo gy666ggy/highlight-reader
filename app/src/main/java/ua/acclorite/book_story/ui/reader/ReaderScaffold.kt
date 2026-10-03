@@ -329,12 +329,19 @@ fun ReaderScaffold(
     val defaultButtonOrder = listOf(
         "chapters", "bookmark", "nextBookmark", "search", "replace",
         "chapterReplace", "editChapter", "highlightColor", "modifyHighlight",
-        "punctuationEdit", "textReplace", "paragraphPrefix", "sort", "settings"
+        "punctuationEdit", "textReplace", "paragraphPrefix", "punctuationAdd", "sort", "settings"
     )
     var buttonOrder by remember {
         val saved = globalPrefs.getString("bottom_button_order", "").orEmpty()
             .split(",").filter { it.isNotBlank() }
-        mutableStateOf(if (saved.isNotEmpty() && saved.size == defaultButtonOrder.size) saved else defaultButtonOrder)
+        val merged = if (saved.isNotEmpty()) {
+            // 在保存的排序基础上，追加新增的按钮，避免丢失用户自定义排序
+            val missing = defaultButtonOrder.filter { it !in saved }
+            saved + missing
+        } else {
+            defaultButtonOrder
+        }
+        mutableStateOf(merged)
     }
 
     fun parseReplaceRules(): List<String> {
