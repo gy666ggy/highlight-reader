@@ -1024,8 +1024,18 @@ fun ReaderScaffold(
         val sentence = currentText.substring(start, end)
         val remaining = currentText.removeRange(start, end).trim()
 
+        // 自动改标点：上一段末句号→逗号（接续新句），被移首句末逗号→句号（成新段末）
+        var newPrev = prevText.trimEnd()
+        if (newPrev.isNotEmpty() && newPrev.last() == '。') {
+            newPrev = newPrev.dropLast(1) + '，'
+        }
+        var newSentence = sentence
+        if (newSentence.isNotEmpty() && newSentence.last() == '，') {
+            newSentence = newSentence.dropLast(1) + '。'
+        }
+
         val updatedText = baseText.toMutableList()
-        updatedText[prevIndex] = ReaderText.Text(AnnotatedString(prevText.trimEnd() + sentence))
+        updatedText[prevIndex] = ReaderText.Text(AnnotatedString(newPrev + newSentence))
         if (remaining.isEmpty()) {
             updatedText.removeAt(index)
         } else {
@@ -1068,12 +1078,22 @@ fun ReaderScaffold(
         val sentence = currentText.substring(start, end)
         val remaining = currentText.removeRange(start, end).trim()
 
+        // 自动改标点：被移末句末句号→逗号（接续下段），当前段剩余末逗号→句号（成新段末）
+        var newSentence = sentence
+        if (newSentence.isNotEmpty() && newSentence.last() == '。') {
+            newSentence = newSentence.dropLast(1) + '，'
+        }
+        var newRemaining = remaining
+        if (newRemaining.isNotEmpty() && newRemaining.last() == '，') {
+            newRemaining = newRemaining.dropLast(1) + '。'
+        }
+
         val updatedText = baseText.toMutableList()
-        updatedText[nextIndex] = ReaderText.Text(AnnotatedString(sentence + nextText.trimStart()))
+        updatedText[nextIndex] = ReaderText.Text(AnnotatedString(newSentence + nextText.trimStart()))
         if (remaining.isEmpty()) {
             updatedText.removeAt(index)
         } else {
-            updatedText[index] = ReaderText.Text(AnnotatedString(remaining))
+            updatedText[index] = ReaderText.Text(AnnotatedString(newRemaining))
         }
         baseText = updatedText
         saveBaseTextToTxt(baseText)
