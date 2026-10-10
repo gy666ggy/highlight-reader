@@ -17,6 +17,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.TextLayoutResult
@@ -32,7 +33,6 @@ import ua.acclorite.book_story.presentation.reader.ReaderEvent
 import ua.acclorite.book_story.presentation.reader.model.ReaderFontThickness
 import ua.acclorite.book_story.presentation.reader.model.ReaderTextAlignment
 import ua.acclorite.book_story.ui.common.components.common.StyledText
-import ua.acclorite.book_story.ui.common.helpers.noRippleClickable
 import ua.acclorite.book_story.ui.reader.model.FontWithName
 
 @Composable
@@ -68,6 +68,7 @@ fun LazyItemScope.ReaderLayoutTextParagraph(
     onParagraphPrefixClick: (String, Int) -> Unit = { _, _ -> },
     punctuationAddMode: Boolean = false,
     onPunctuationAddClick: (Int) -> Unit = {},
+    onLongPressSentenceMove: (Int) -> Unit = {},
     toolbarHidden: Boolean,
     openTranslator: (ReaderEvent.OnOpenTranslator) -> Unit,
     menuVisibility: (ReaderEvent.OnMenuVisibility) -> Unit
@@ -80,6 +81,19 @@ fun LazyItemScope.ReaderLayoutTextParagraph(
 
     val anyEditMode = punctuationEditMode || textReplaceMode || paragraphPrefixMode || modifyHighlightMode || punctuationAddMode
 
+    // 长按处理：句子移动（上移/下移），与单击功能独立，可同时使用
+    val longPressHandler: (Offset) -> Unit = { offset ->
+        val result = layoutResult.value
+        if (result != null) {
+            val text = paragraph.line.text
+            if (text.isNotEmpty()) {
+                val charOffset = result.getOffsetForPosition(offset)
+                    .coerceIn(0, text.length - 1)
+                onLongPressSentenceMove(charOffset)
+            }
+        }
+    }
+
     // 编辑/高亮模式下的统一点击处理器：直接放在 StyledText 上，确保事件不被父级拦截
     val editTapModifier = if (anyEditMode) {
         Modifier.pointerInput(
@@ -90,7 +104,9 @@ fun LazyItemScope.ReaderLayoutTextParagraph(
             paragraphPrefixMode, paragraphPrefixRules,
             punctuationAddMode
         ) {
-            detectTapGestures { offset ->
+            detectTapGestures(
+                onLongPress = longPressHandler
+            ) { offset ->
                 val result = layoutResult.value ?: return@detectTapGestures
                 val text = paragraph.line.text
                 if (text.isEmpty()) return@detectTapGestures
@@ -225,37 +241,50 @@ fun LazyItemScope.ReaderLayoutTextParagraph(
                     // 编辑/高亮模式：使用统一的 pointerInput 处理点击
                     editTapModifier
                 } else if (doubleClickTranslation && toolbarHidden) {
-                    // 普通模式：双击翻译 + 单击切换功能栏
-                    Modifier.noRippleClickable(
-                        onDoubleClick = {
-                            openTranslator(
-                                ReaderEvent.OnOpenTranslator(
-                                    textToTranslate = paragraph.line.text,
-                                    translateWholeParagraph = true
+                    // 普通模式：双击翻译 + 单击切换功能栏 + 长按句子移动
+                    Modifier.pointerInput(paragraph) {
+                        detectTapGestures(
+                            onLongPress = longPressHandler,
+                            onDoubleTap = {
+                                openTranslator(
+                                    ReaderEvent.OnOpenTranslator(
+                                        textToTranslate = paragraph.line.text,
+                                        translateWholeParagraph = true
+                                    )
                                 )
-                            )
-                        },
-                        onClick = {
-                            menuVisibility(
-                                ReaderEvent.OnMenuVisibility(
-                                    show = !showMenu,
-                                    saveCheckpoint = true
+                            },
+                            onTap = {
+                                menuVisibility(
+                                    ReaderEvent.OnMenuVisibility(
+                                        show = !showMenu,
+                                        saveCheckpoint = true
+                                    )
                                 )
-                            )
-                        }
-                    )
+                            }
+                        )
+                    }
                 } else if (toolbarHidden) {
-                    // 普通模式：单击切换功能栏
-                    Modifier.noRippleClickable {
-                        menuVisibility(
-                            ReaderEvent.OnMenuVisibility(
-                                show = !showMenu,
-                                saveCheckpoint = true
-                            )
+                    // 普通模式：单击切换功能栏 + 长按句子移动
+                    Modifier.pointerInput(paragraph) {
+                        detectTapGestures(
+                            onLongPress = longPressHandler,
+                            onTap = {
+                                menuVisibility(
+                                    ReaderEvent.OnMenuVisibility(
+                                        show = !showMenu,
+                                        saveCheckpoint = true
+                                    )
+                                )
+                            }
                         )
                     }
                 } else {
-                    Modifier
+                    // 菜单可见时：仅长按句子移动
+                    Modifier.pointerInput(paragraph) {
+                        detectTapGestures(
+                            onLongPress = longPressHandler
+                        )
+                    }
                 }
             ),
             style = TextStyle(

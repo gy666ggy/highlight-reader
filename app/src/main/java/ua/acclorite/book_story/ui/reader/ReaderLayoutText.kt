@@ -60,6 +60,7 @@ fun LazyItemScope.ReaderLayoutText(
     onParagraphPrefixClick: (String, Int) -> Unit = { _, _ -> },
     punctuationAddMode: Boolean = false,
     onPunctuationAddClick: (Int) -> Unit = {},
+    onLongPressSentenceMove: (Int) -> Unit = {},
     toolbarHidden: Boolean,
     openTranslator: (ReaderEvent.OnOpenTranslator) -> Unit,
     menuVisibility: (ReaderEvent.OnMenuVisibility) -> Unit
@@ -134,6 +135,7 @@ fun LazyItemScope.ReaderLayoutText(
                 onParagraphPrefixClick = onParagraphPrefixClick,
                 punctuationAddMode = punctuationAddMode,
                 onPunctuationAddClick = onPunctuationAddClick,
+                onLongPressSentenceMove = onLongPressSentenceMove,
                 toolbarHidden = toolbarHidden,
                 openTranslator = openTranslator,
                 menuVisibility = menuVisibility

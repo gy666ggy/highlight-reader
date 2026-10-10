@@ -78,6 +78,7 @@ fun ReaderLayout(
     onParagraphPrefixClick: (Int, String, Int) -> Unit = { _, _, _ -> },
     punctuationAddMode: Boolean = false,
     onPunctuationAddClick: (Int, Int) -> Unit = { _, _ -> },
+    onLongPressSentenceMove: (Int, Int) -> Unit = { _, _ -> },
     progress: String,
     progressBar: Boolean,
     progressBarPadding: Dp,
@@ -255,6 +256,9 @@ fun ReaderLayout(
                                     punctuationAddMode = punctuationAddMode,
                                     onPunctuationAddClick = { charOffset ->
                                         onPunctuationAddClick(index, charOffset)
+                                    },
+                                    onLongPressSentenceMove = { charOffset ->
+                                        onLongPressSentenceMove(index, charOffset)
                                     },
                                     toolbarHidden = toolbarHidden,
                                     openTranslator = openTranslator,
