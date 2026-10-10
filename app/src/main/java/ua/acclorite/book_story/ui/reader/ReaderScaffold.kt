@@ -998,61 +998,6 @@ fun ReaderScaffold(
     }
 
     /**
-     * 长按句子移动：根据点击位置判断移动方向
-     * - 点击首句区域 → 首句移到上一段末尾
-     * - 点击末句区域 → 末句移到下一段开头
-     */
-    fun applySentenceMove(index: Int, charOffset: Int) {
-        val entry = baseText.getOrNull(index) as? ReaderText.Text ?: return
-        val text = entry.line.text
-        if (text.isEmpty()) return
-
-        val offset = charOffset.coerceIn(0, text.length - 1)
-
-        // 句子分隔标点
-        val sentenceEndPuncts = setOf('。', '！', '？', '，', '；', '：')
-
-        // 查找首个和末个句子分隔标点的位置
-        val firstEnd = text.indexOfFirst { it in sentenceEndPuncts }
-        val lastEnd = text.indexOfLast { it in sentenceEndPuncts }
-
-        when {
-            // 无标点：整段只有一个句子，按位置决定方向
-            firstEnd < 0 -> {
-                if (offset < text.length / 2) {
-                    moveSentenceUp(index, 0, text.length)
-                } else {
-                    moveSentenceDown(index, 0, text.length)
-                }
-            }
-            // 只有一个标点：前半段=首句，后半段=末句
-            firstEnd == lastEnd -> {
-                if (offset <= firstEnd) {
-                    moveSentenceUp(index, 0, firstEnd + 1)
-                } else {
-                    moveSentenceDown(index, firstEnd + 1, text.length)
-                }
-            }
-            // 点击在首句区域（含标点） → 上移
-            offset <= firstEnd -> {
-                moveSentenceUp(index, 0, firstEnd + 1)
-            }
-            // 点击在末句区域（标点之后） → 下移
-            offset > lastEnd -> {
-                moveSentenceDown(index, lastEnd + 1, text.length)
-            }
-            // 点击在中间句子 → 提示
-            else -> {
-                android.widget.Toast.makeText(
-                    context,
-                    "请长按首句或末句",
-                    android.widget.Toast.LENGTH_SHORT
-                ).show()
-            }
-        }
-    }
-
-    /**
      * 首句上移：将当前段落的指定范围文本移到上一段末尾
      */
     fun moveSentenceUp(index: Int, start: Int, end: Int) {
@@ -1138,6 +1083,61 @@ fun ReaderScaffold(
             "已将末句移到下一段",
             android.widget.Toast.LENGTH_SHORT
         ).show()
+    }
+
+    /**
+     * 长按句子移动：根据点击位置判断移动方向
+     * - 点击首句区域 → 首句移到上一段末尾
+     * - 点击末句区域 → 末句移到下一段开头
+     */
+    fun applySentenceMove(index: Int, charOffset: Int) {
+        val entry = baseText.getOrNull(index) as? ReaderText.Text ?: return
+        val text = entry.line.text
+        if (text.isEmpty()) return
+
+        val offset = charOffset.coerceIn(0, text.length - 1)
+
+        // 句子分隔标点
+        val sentenceEndPuncts = setOf('。', '！', '？', '，', '；', '：')
+
+        // 查找首个和末个句子分隔标点的位置
+        val firstEnd = text.indexOfFirst { it in sentenceEndPuncts }
+        val lastEnd = text.indexOfLast { it in sentenceEndPuncts }
+
+        when {
+            // 无标点：整段只有一个句子，按位置决定方向
+            firstEnd < 0 -> {
+                if (offset < text.length / 2) {
+                    moveSentenceUp(index, 0, text.length)
+                } else {
+                    moveSentenceDown(index, 0, text.length)
+                }
+            }
+            // 只有一个标点：前半段=首句，后半段=末句
+            firstEnd == lastEnd -> {
+                if (offset <= firstEnd) {
+                    moveSentenceUp(index, 0, firstEnd + 1)
+                } else {
+                    moveSentenceDown(index, firstEnd + 1, text.length)
+                }
+            }
+            // 点击在首句区域（含标点） → 上移
+            offset <= firstEnd -> {
+                moveSentenceUp(index, 0, firstEnd + 1)
+            }
+            // 点击在末句区域（标点之后） → 下移
+            offset > lastEnd -> {
+                moveSentenceDown(index, lastEnd + 1, text.length)
+            }
+            // 点击在中间句子 → 提示
+            else -> {
+                android.widget.Toast.makeText(
+                    context,
+                    "请长按首句或末句",
+                    android.widget.Toast.LENGTH_SHORT
+                ).show()
+            }
+        }
     }
 
     fun buildSearchResults() {
