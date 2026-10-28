@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Book's Story — 系统备份/恢复规则
+    声明哪些数据可以被 Android 系统备份（手机搬家、adb backup 等）
+-->
+<data-extraction-rules>
+    <!-- 云备份（手机搬家）：包含所有内部数据 -->
+    <cloud-backup>
+        <!-- 数据库：书籍、历史、颜色预设、分类 -->
+        <include domain="database" path="." />
+        <!-- SharedPreferences：全局设置、每本书的书签和高亮色 -->
+        <include domain="sharedpref" path="." />
+        <!-- 文件：段落高亮色、封面图片 -->
+        <include domain="file" path="paragraph_colors/" />
+        <include domain="file" path="covers/" />
+        <!-- DataStore 设置 -->
+        <include domain="file" path="datastore/" />
+    </cloud-backup>
+
+    <!-- 设备端备份（adb backup）：同上 -->
+    <device-transfer>
+        <include domain="database" path="." />
+        <include domain="sharedpref" path="." />
+        <include domain="file" path="paragraph_colors/" />
+        <include domain="file" path="covers/" />
+        <include domain="file" path="datastore/" />
+    </device-transfer>
+
+    <!-- SAF 持久化权限不备份（Android 系统限制，需用户在新手机重新授权） -->
+</data-extraction-rules>

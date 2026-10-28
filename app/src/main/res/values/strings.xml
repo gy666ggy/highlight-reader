@@ -183,6 +183,11 @@
     <string name="app_theme_option">App theme</string>
     <string name="double_press_exit_option">Double back press to exit</string>
     <string name="double_press_exit_option_desc">Press back twice to exit the app</string>
+
+    <!-- Backup & Restore -->
+    <string name="backup_restore">Backup &amp; Restore</string>
+    <string name="backup_restore_desc">Export/import all app data (settings, highlights, progress). TXT books must be copied manually.</string>
+
     <string name="show_navigation_labels_option">Show navigation labels</string>
     <string name="show_navigation_labels_option_desc">Show navigation bar labels under icons</string>
 
