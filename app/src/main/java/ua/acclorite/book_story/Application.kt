@@ -13,11 +13,16 @@ import coil.decode.GifDecoder
 import coil.decode.ImageDecoderDecoder
 import dagger.hilt.android.HiltAndroidApp
 import ua.acclorite.book_story.core.crash.CrashHandler
+import ua.acclorite.book_story.data.backup.BackupManager
 
 @HiltAndroidApp
 class Application : Application(), ImageLoaderFactory {
     override fun onCreate() {
         super.onCreate()
+
+        // 备份恢复必须在 Room / DataStore 初始化之前完成
+        BackupManager.applyPendingRestore(this)
+
         Thread.setDefaultUncaughtExceptionHandler(CrashHandler(this))
     }
 
